@@ -18,8 +18,8 @@ from app.models.schemas import (
     FlashDrumResponse,
     HeatExchangerRequest,
     HeatExchangerResponse,
-    ProjectCreate,
-    ProjectResponse,
+    SimProjectCreate,
+    SimProjectResponse,
     RunCreate,
     RunResponse,
 )
@@ -62,22 +62,22 @@ def quick_hex(req: HeatExchangerRequest) -> HeatExchangerResponse:
 
 # ── Projects ──────────────────────────────────────────────────────────────────
 
-@router.post("/projects", response_model=ProjectResponse, status_code=201)
+@router.post("/projects", response_model=SimProjectResponse, status_code=201)
 async def create_project(
-    data: ProjectCreate, db: AsyncSession = Depends(get_db)
-) -> ProjectResponse:
+    data: SimProjectCreate, db: AsyncSession = Depends(get_db)
+) -> SimProjectResponse:
     svc = SimulationService(db)
     return await svc.create_project(data)  # type: ignore[return-value]
 
 
-@router.get("/projects", response_model=list[ProjectResponse])
-async def list_projects(db: AsyncSession = Depends(get_db)) -> list[ProjectResponse]:
+@router.get("/projects", response_model=list[SimProjectResponse])
+async def list_projects(db: AsyncSession = Depends(get_db)) -> list[SimProjectResponse]:
     svc = SimulationService(db)
     return await svc.list_projects()  # type: ignore[return-value]
 
 
-@router.get("/projects/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: str, db: AsyncSession = Depends(get_db)) -> ProjectResponse:
+@router.get("/projects/{project_id}", response_model=SimProjectResponse)
+async def get_project(project_id: str, db: AsyncSession = Depends(get_db)) -> SimProjectResponse:
     svc = SimulationService(db)
     project = await svc.get_project(project_id)
     if project is None:

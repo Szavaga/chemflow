@@ -14,7 +14,7 @@ from app.core.simulation import (
     simulate_heat_exchanger,
 )
 from app.models.orm import SimulationProject, SimulationRun
-from app.models.schemas import ProjectCreate, RunCreate
+from app.models.schemas import SimProjectCreate, RunCreate
 
 
 class SimulationService:
@@ -23,7 +23,7 @@ class SimulationService:
 
     # ── Projects ──────────────────────────────────────────────────────────────
 
-    async def create_project(self, data: ProjectCreate) -> SimulationProject:
+    async def create_project(self, data: SimProjectCreate) -> SimulationProject:
         project = SimulationProject(
             id=str(uuid.uuid4()),
             name=data.name,
