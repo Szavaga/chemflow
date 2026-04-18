@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -71,7 +71,7 @@ class SimulationService:
             run.status = "failed"
             run.error_message = str(exc)
 
-        run.completed_at = datetime.utcnow()
+        run.completed_at = datetime.now(timezone.utc)
         await self.db.commit()
         await self.db.refresh(run)
         return run
