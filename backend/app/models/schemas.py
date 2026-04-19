@@ -149,6 +149,10 @@ class Edge(BaseModel):
     source: str = Field(description="Source node id")
     target: str = Field(description="Target node id")
     label: str | None = None
+    source_handle: str | None = Field(
+        default=None,
+        description="Outlet port index (as string) for multi-outlet nodes, e.g. '0'=liquid '1'=vapour on a flash drum",
+    )
 
 
 class FlowsheetCreate(BaseModel):
@@ -235,6 +239,32 @@ class SimulationResultResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Auth
+# ══════════════════════════════════════════════════════════════════════════════
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: "UserResponse"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Simulation creation (top-level route — project_id in body)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SimulationCreateRequest(BaseModel):
+    """Body for POST /api/simulations/ — project_id is required here because
+    simulations are a top-level resource (not nested under /projects/{id})."""
+    name: str = Field(min_length=1, max_length=255)
+    project_id: str
 
 
 # ══════════════════════════════════════════════════════════════════════════════

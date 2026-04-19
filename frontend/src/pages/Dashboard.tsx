@@ -1,9 +1,56 @@
 import { useState } from 'react'
-import SimulationCard from '../components/SimulationCard'
+import { useNavigate } from 'react-router-dom'
+import { createSimulation } from '../api/client'
 import { useProjects } from '../hooks/useSimulations'
+import type { Project } from '../types'
+
+// ── Per-project simulation list ───────────────────────────────────────────────
+
+function ProjectSection({ project }: { project: Project }) {
+  const navigate = useNavigate()
+  const [simName, setSimName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const handleNewSim = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!simName.trim()) return
+    setCreating(true)
+    setErr(null)
+    try {
+      const sim = await createSimulation(project.id, simName.trim())
+      navigate(`/flowsheet/${sim.id}`)
+    } catch {
+      setErr('Failed to create simulation')
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className="project-section card">
+      <div className="card-header">
+        <h2>{project.name}</h2>
+        {project.description && <p className="card-desc">{project.description}</p>}
+      </div>
+      <form className="new-sim-row" onSubmit={handleNewSim}>
+        <input
+          value={simName}
+          onChange={e => setSimName(e.target.value)}
+          placeholder="New simulation name…"
+        />
+        <button type="submit" className="btn btn-primary btn-sm" disabled={creating || !simName.trim()}>
+          {creating ? 'Creating…' : '+ Simulation'}
+        </button>
+      </form>
+      {err && <div className="error-banner">{err}</div>}
+    </div>
+  )
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const { projects, loading, error, add, remove } = useProjects()
+  const { projects, loading, error, add } = useProjects()
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -69,12 +116,12 @@ export default function Dashboard() {
         <div className="loading">Loading projects…</div>
       ) : projects.length === 0 ? (
         <div className="card empty-state">
-          <p>No projects yet. Create one above to start simulating unit operations.</p>
+          <p>No projects yet. Create one above to get started.</p>
         </div>
       ) : (
-        <div className="card-grid">
+        <div className="project-list">
           {projects.map(p => (
-            <SimulationCard key={p.id} project={p} onDelete={remove} />
+            <ProjectSection key={p.id} project={p} />
           ))}
         </div>
       )}

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
-import { createProject, deleteProject, fetchProjects } from '../api/client'
-import type { Project } from '../types'
+import {
+  createProject,
+  createSimulation,
+  deleteSimulation,
+  fetchProjects,
+} from '../api/client'
+import type { Project, Simulation } from '../types'
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -27,10 +32,22 @@ export function useProjects() {
     return project
   }
 
-  const remove = async (id: string): Promise<void> => {
-    await deleteProject(id)
-    setProjects(prev => prev.filter(p => p.id !== id))
+  return { projects, loading, error, refresh: load, add }
+}
+
+export function useSimulations(projectId: string) {
+  const [simulations, setSimulations] = useState<Simulation[]>([])
+
+  const addSim = async (name: string): Promise<Simulation> => {
+    const sim = await createSimulation(projectId, name)
+    setSimulations(prev => [sim, ...prev])
+    return sim
   }
 
-  return { projects, loading, error, refresh: load, add, remove }
+  const removeSim = async (id: string): Promise<void> => {
+    await deleteSimulation(id)
+    setSimulations(prev => prev.filter(s => s.id !== id))
+  }
+
+  return { simulations, addSim, removeSim }
 }

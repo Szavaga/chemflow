@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     env: str = "development"
     debug: bool = False
 
+    # JWT
+    secret_key: str = "CHANGE-ME-IN-PRODUCTION-USE-A-LONG-RANDOM-STRING"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24  # 24 h
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

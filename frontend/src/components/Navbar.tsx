@@ -1,7 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 export default function Navbar() {
   const { pathname } = useLocation()
+  const { user, logout } = useAuth()
 
   return (
     <nav className="navbar">
@@ -16,6 +18,10 @@ export default function Navbar() {
         <Link to="/simulate" className={`nav-link${pathname === '/simulate' ? ' active' : ''}`}>
           Simulator
         </Link>
+      </div>
+      <div className="nav-user">
+        <span className="nav-email">{user?.email}</span>
+        <button className="btn btn-sm" onClick={logout}>Sign out</button>
       </div>
     </nav>
   )

@@ -1,3 +1,20 @@
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export interface UserResponse {
+  id: string
+  email: string
+  plan: string
+  created_at: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  user: UserResponse
+}
+
+// ── Legacy quick-sim types (kept for /simulate page) ─────────────────────────
+
 export type UnitType = 'flash_drum' | 'cstr' | 'heat_exchanger'
 
 export interface ChemComponent {
@@ -7,13 +24,6 @@ export interface ChemComponent {
   Tc: number
   Pc: number
   omega: number
-}
-
-export interface Project {
-  id: string
-  name: string
-  description?: string
-  created_at: string
 }
 
 export type RunStatus = 'pending' | 'running' | 'success' | 'failed'
@@ -63,3 +73,79 @@ export interface HEXResult {
 }
 
 export type SimResult = FlashResult | CSTRResult | HEXResult
+
+// ── New project / simulation types ────────────────────────────────────────────
+
+export interface Project {
+  id: string
+  user_id: string
+  name: string
+  description?: string
+  created_at: string
+  updated_at: string
+}
+
+export type SimulationStatus = 'idle' | 'running' | 'complete' | 'error'
+
+export interface Simulation {
+  id: string
+  project_id: string
+  name: string
+  status: SimulationStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface FlowsheetNode {
+  id: string
+  type: string
+  label: string
+  data: Record<string, unknown>
+  position: { x: number; y: number }
+}
+
+export interface FlowsheetEdge {
+  id: string
+  source: string
+  target: string
+  label?: string
+  source_handle?: string
+}
+
+export interface Flowsheet {
+  id: string
+  simulation_id: string
+  nodes: FlowsheetNode[]
+  edges: FlowsheetEdge[]
+  created_at: string
+}
+
+export interface SimulationDetail extends Simulation {
+  flowsheet?: Flowsheet
+  result?: SimulationResult
+}
+
+export interface StreamState {
+  name?: string
+  flow: number
+  temperature: number
+  pressure: number
+  vapor_fraction?: number
+  composition: Record<string, number>
+}
+
+export interface EnergyBalance {
+  total_duty_kW: number
+  heating_kW:    number
+  cooling_kW:    number
+  [key: string]: number   // forward-compat index signature
+}
+
+export interface SimulationResult {
+  id: string
+  simulation_id: string
+  streams: Record<string, StreamState>
+  energy_balance: EnergyBalance
+  warnings: string[]
+  created_at: string
+}
