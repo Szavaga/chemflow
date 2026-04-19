@@ -38,36 +38,48 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 
 ---
 
-## Running locally (recommended for development)
+## Running locally (no Docker required)
 
-You need **Python 3.12+**, **Node 18+**, and a running **PostgreSQL 16** instance.
+Prerequisites: **Python 3.12+** and **Node 18+**. Check with:
 
-### 1 — PostgreSQL
-
-The easiest way is to spin up just the database with Docker:
-
-```bash
-docker compose up postgres -d
+```powershell
+python --version
+node --version
 ```
 
-Or use any local PostgreSQL with a database named `chemflow` and user `chemflow / chemflow`.
+### 1 — Install PostgreSQL (Windows, run in PowerShell)
+
+If you don't have PostgreSQL installed:
+
+```powershell
+winget install PostgreSQL.PostgreSQL.16
+```
+
+When the installer asks for a superuser password, choose something memorable (e.g. `postgres`). Leave the port as `5432`.
+
+Then create the app database (still in PowerShell — enter your superuser password when prompted):
+
+```powershell
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -c "CREATE USER chemflow WITH PASSWORD 'chemflow';"
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -c "CREATE DATABASE chemflow OWNER chemflow;"
+```
+
+> **Already have PostgreSQL?** Skip the install step and just run the two `psql` commands above, or create the database via pgAdmin. If you need different credentials, see [Environment variables](#environment-variables).
 
 ### 2 — Backend
+
+Open a terminal in the project root:
 
 ```bash
 cd backend
 
 # Create and activate a virtual environment
 python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS / Linux
+.venv\Scripts\activate        # PowerShell / CMD
+# source .venv/bin/activate   # macOS / Linux / Git Bash
 
 # Install dependencies
 pip install -r requirements.txt
-
-# (Optional) override settings via .env file
-# DATABASE_URL=postgresql+asyncpg://chemflow:chemflow@localhost:5432/chemflow
-# SECRET_KEY=your-random-secret
 
 # Start the dev server
 uvicorn main:app --reload
@@ -78,6 +90,8 @@ Interactive API docs: **http://localhost:8000/docs**
 
 ### 3 — Frontend
 
+Open a **second** terminal:
+
 ```bash
 cd frontend
 npm install
@@ -86,11 +100,13 @@ npm run dev
 
 Frontend is available at **http://localhost:5173**
 
-> The frontend proxies `/api` to `http://localhost:8000` via the Vite config.
+> The frontend proxies `/api` to `http://localhost:8000` automatically — no extra config needed.
 
 ---
 
-## Running with Docker Compose (all-in-one)
+## Running with Docker Compose
+
+If you have Docker Desktop installed you can start everything with one command:
 
 ```bash
 git clone https://github.com/Szavaga/chemflow.git
