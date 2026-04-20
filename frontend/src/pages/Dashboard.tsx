@@ -1,8 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createSimulation } from '../api/client'
+import { createSimulation, deleteSimulation, updateProject } from '../api/client'
 import { useProjects } from '../hooks/useSimulations'
 import type { Project } from '../types'
+
+const PALETTE = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#ef4444',
+  '#f97316', '#eab308', '#22c55e', '#14b8a6',
+  '#3b82f6', '#64748b',
+]
 
 // ── Per-project simulation list ───────────────────────────────────────────────
 
@@ -10,7 +16,11 @@ function ProjectSection({ project }: { project: Project }) {
   const navigate = useNavigate()
   const [simName, setSimName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [sims, setSims] = useState(project.simulations ?? [])
+  const [color, setColor] = useState(project.color ?? '#6366f1')
+  const [showPalette, setShowPalette] = useState(false)
 
   const handleNewSim = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -19,6 +29,8 @@ function ProjectSection({ project }: { project: Project }) {
     setErr(null)
     try {
       const sim = await createSimulation(project.id, simName.trim())
+      setSims(prev => [sim, ...prev])
+      setSimName('')
       navigate(`/flowsheet/${sim.id}`)
     } catch {
       setErr('Failed to create simulation')
@@ -26,12 +38,78 @@ function ProjectSection({ project }: { project: Project }) {
     }
   }
 
+  const handleDelete = async (id: string) => {
+    setDeletingId(id)
+    try {
+      await deleteSimulation(id)
+      setSims(prev => prev.filter(s => s.id !== id))
+    } catch {
+      setErr('Failed to delete simulation')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const handleColorPick = async (c: string) => {
+    setColor(c)
+    setShowPalette(false)
+    try {
+      await updateProject(project.id, { color: c })
+    } catch {
+      setErr('Failed to save colour')
+    }
+  }
+
   return (
-    <div className="project-section card">
-      <div className="card-header">
-        <h2>{project.name}</h2>
-        {project.description && <p className="card-desc">{project.description}</p>}
+    <div className="project-section card" style={{ borderTopColor: color }}>
+      <div className="project-header">
+        <div className="project-color-wrap">
+          <button
+            className="project-color-swatch"
+            style={{ background: color }}
+            onClick={() => setShowPalette(p => !p)}
+            title="Change colour"
+          />
+          {showPalette && (
+            <div className="color-palette">
+              {PALETTE.map(c => (
+                <button
+                  key={c}
+                  className={`color-swatch${c === color ? ' color-swatch--active' : ''}`}
+                  style={{ background: c }}
+                  onClick={() => handleColorPick(c)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="project-title-block">
+          <h2>{project.name}</h2>
+          {project.description && <p className="card-desc">{project.description}</p>}
+        </div>
       </div>
+
+      {sims.length > 0 && (
+        <div className="sim-grid">
+          {sims.map(s => (
+            <div key={s.id} className="sim-box">
+              <button className="sim-box-btn" onClick={() => navigate(`/flowsheet/${s.id}`)}>
+                <span className="sim-box-name">{s.name}</span>
+                <span className={`badge badge-sim-${s.status}`}>{s.status}</span>
+              </button>
+              <button
+                className="sim-box-delete"
+                onClick={() => handleDelete(s.id)}
+                disabled={deletingId === s.id}
+                title="Delete"
+              >
+                {deletingId === s.id ? '…' : '✕'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <form className="new-sim-row" onSubmit={handleNewSim}>
         <input
           value={simName}

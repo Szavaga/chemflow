@@ -40,7 +40,9 @@ from app.models.schemas import (
     FlowsheetCreate,
     FlowsheetResponse,
     ProjectCreate,
+    ProjectDetail,
     ProjectResponse,
+    ProjectUpdate,
     SimulationCreateRequest,
     SimulationDetail,
     SimulationResponse,
@@ -59,25 +61,46 @@ async def create_project(
     user: User = Depends(get_current_user),
 ) -> ProjectResponse:
     """Create a Project owned by the authenticated user."""
-    project = Project(user_id=user.id, name=body.name, description=body.description)
+    project = Project(user_id=user.id, name=body.name, description=body.description, color=body.color)
     db.add(project)
     await db.commit()
     await db.refresh(project)
     return ProjectResponse.model_validate(project)
 
 
-@router.get("/my/projects", response_model=list[ProjectResponse])
+@router.patch("/my/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    project_id: str,
+    body: ProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProjectResponse:
+    """Update name, description, or color of a project owned by the caller."""
+    project = await _get_project_for_user(project_id, db, user)
+    if body.name is not None:
+        project.name = body.name
+    if body.description is not None:
+        project.description = body.description
+    if body.color is not None:
+        project.color = body.color
+    await db.commit()
+    await db.refresh(project)
+    return ProjectResponse.model_validate(project)
+
+
+@router.get("/my/projects", response_model=list[ProjectDetail])
 async def list_my_projects(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[ProjectResponse]:
-    """List all Projects owned by the authenticated user, newest first."""
+) -> list[ProjectDetail]:
+    """List all Projects owned by the authenticated user, newest first, with simulations embedded."""
     rows = await db.execute(
         select(Project)
         .where(Project.user_id == user.id)
+        .options(selectinload(Project.simulations))
         .order_by(Project.created_at.desc())
     )
-    return [ProjectResponse.model_validate(p) for p in rows.scalars()]
+    return [ProjectDetail.model_validate(p) for p in rows.scalars()]
 
 
 # ── Simulation CRUD ───────────────────────────────────────────────────────────

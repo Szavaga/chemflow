@@ -291,10 +291,114 @@ input:focus, select:focus {
 
 /* ── Dashboard project list ───────────────────────────────────────────────── */
 .project-list { display: flex; flex-direction: column; gap: 1rem; }
-.project-section { padding: 1.25rem 1.5rem; }
-.project-section .card-header { margin-bottom: 0.75rem; }
-.new-sim-row { display: flex; gap: 0.5rem; }
+.project-section {
+  padding: 1.25rem 1.5rem;
+  border-top: 3px solid var(--primary);
+}
+.new-sim-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 .new-sim-row input { flex: 1; }
+
+/* Project header with colour swatch */
+.project-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.project-color-wrap { position: relative; flex-shrink: 0; padding-top: 2px; }
+.project-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.project-color-swatch:hover { transform: scale(1.15); }
+.color-palette {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 22px);
+  gap: 5px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  z-index: 50;
+}
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.color-swatch:hover { transform: scale(1.18); }
+.color-swatch--active { border-color: var(--text); }
+.project-title-block h2 { font-size: 1rem; font-weight: 600; }
+.project-title-block .card-desc { margin-bottom: 0; }
+
+/* Simulation grid */
+.sim-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.sim-box {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+  transition: box-shadow 0.12s;
+}
+.sim-box:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.sim-box-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.65rem 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.sim-box-btn:hover { background: var(--bg); }
+.sim-box-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.sim-box-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  padding: 0 0.6rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: background 0.1s, color 0.1s;
+}
+.sim-box-delete:hover { background: #fef2f2; color: var(--danger); }
+.sim-box-delete:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.badge-sim-idle    { background: #f1f5f9; color: var(--text-muted); }
+.badge-sim-running { background: #eff6ff; color: #3b82f6; }
+.badge-sim-complete { background: #dcfce7; color: #16a34a; }
+.badge-sim-error   { background: #fef2f2; color: #dc2626; }
 
 /* ── Flowsheet layout ─────────────────────────────────────────────────────── */
 .flowsheet-layout {

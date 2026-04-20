@@ -480,12 +480,14 @@ function ConfigPanel({
   streams,
   onChange,
   onClose,
+  onDelete,
 }: {
   node:     Node
   edges:    Edge[]
   streams:  Record<string, StreamState>
   onChange: (id: string, data: D) => void
   onClose:  () => void
+  onDelete: (id: string) => void
 }) {
   const data = node.data as D
   const type = data.nodeType as string
@@ -505,12 +507,21 @@ function ConfigPanel({
             {type.replace(/_/g, ' ')}
           </p>
         </div>
-        <button
-          onClick={onClose}
-          className="ml-3 flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-colors text-lg leading-none"
-        >
-          ×
-        </button>
+        <div className="ml-3 flex-shrink-0 flex items-center gap-1">
+          <button
+            onClick={() => onDelete(node.id)}
+            title="Delete operation"
+            className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:text-red-400 hover:bg-red-950 transition-colors text-sm leading-none"
+          >
+            🗑
+          </button>
+          <button
+            onClick={onClose}
+            className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-colors text-lg leading-none"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {/* Unit params section */}
@@ -683,6 +694,14 @@ function Canvas({ simId }: { simId: string }) {
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data } : n))
     setSel(prev => prev?.id === id ? { ...prev, data } : prev)
   }
+
+  // ── Node deletion ─────────────────────────────────────────────────────────
+
+  const deleteNode = useCallback((id: string) => {
+    setNodes(nds => nds.filter(n => n.id !== id))
+    setEdges(eds => eds.filter(e => e.source !== id && e.target !== id))
+    setSel(null)
+  }, [setNodes, setEdges])
 
   // ── Drag-and-drop ─────────────────────────────────────────────────────────
 
@@ -925,6 +944,7 @@ function Canvas({ simId }: { simId: string }) {
                 streams={streams}
                 onChange={updNode}
                 onClose={() => setSel(null)}
+                onDelete={deleteNode}
               />
             )}
           </div>

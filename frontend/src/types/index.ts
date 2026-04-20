@@ -81,8 +81,10 @@ export interface Project {
   user_id: string
   name: string
   description?: string
+  color?: string
   created_at: string
   updated_at: string
+  simulations: Simulation[]
 }
 
 export type SimulationStatus = 'idle' | 'running' | 'complete' | 'error'

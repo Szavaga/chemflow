@@ -43,6 +43,9 @@ export const fetchProjects = (): Promise<Project[]> =>
 export const createProject = (data: { name: string; description?: string }): Promise<Project> =>
   api.post<Project>('/my/projects', data).then(r => r.data)
 
+export const updateProject = (id: string, data: { name?: string; description?: string; color?: string }): Promise<Project> =>
+  api.patch<Project>(`/my/projects/${id}`, data).then(r => r.data)
+
 // ── Simulations ───────────────────────────────────────────────────────────────
 
 export const fetchSimulation = (id: string): Promise<SimulationDetail> =>

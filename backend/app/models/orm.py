@@ -100,6 +100,8 @@ class Project(Base):
         DateTime(timezone=True), nullable=False, default=_now, onupdate=_now
     )
 
+    color: Mapped[str | None] = mapped_column(String(7))
+
     user: Mapped["User"] = relationship("User", back_populates="projects")
     simulations: Mapped[list["Simulation"]] = relationship(
         "Simulation", back_populates="project", cascade="all, delete-orphan"

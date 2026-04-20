@@ -64,11 +64,13 @@ class UserPublic(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
 
 
 class ProjectResponse(BaseModel):
@@ -76,6 +78,7 @@ class ProjectResponse(BaseModel):
     user_id: str
     name: str
     description: str | None
+    color: str | None
     created_at: datetime
     updated_at: datetime
 
