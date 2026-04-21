@@ -19,7 +19,7 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 | Splitter | Split fractions | Proportional split |
 | Heat Exchanger | Fixed duty (W) **or** outlet T (°C) | Enthalpy balance |
 | PFR | Reactant, product, conversion, ΔH_rxn | Stoichiometric conversion |
-| Flash Drum | T (°C), P (bar) | Rachford-Rice + Peng-Robinson K-values |
+| Flash Drum | T (°C), P (bar) | Rachford-Rice + Wilson activity coefficients (modified Raoult's law) |
 | Pump | ΔP (bar), efficiency | Shaft-work calculation |
 | Product | — | Sink / stream recorder |
 
@@ -28,7 +28,7 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 async, asyncpg |
-| Solver | NumPy, SciPy (Rachford-Rice, Peng-Robinson EOS) |
+| Solver | NumPy, SciPy (Rachford-Rice, Wilson activity coefficients) |
 | Frontend | React 18, TypeScript, Vite |
 | Canvas | @xyflow/react (React Flow v12) |
 | Charts | Recharts |
@@ -152,7 +152,9 @@ chemflow/
 │   │   │   ├── config.py        # Settings (DATABASE_URL, SECRET_KEY, …)
 │   │   │   ├── flowsheet_solver.py  # Topological steady-state solver
 │   │   │   ├── unit_ops.py      # Feed, Mixer, Splitter, HEX, PFR, Flash, Pump
-│   │   │   └── thermo.py        # Peng-Robinson EOS, Antoine, mixture enthalpy
+│   │   │   ├── activity.py      # Wilson activity coefficients + binary parameters
+│   │   │   ├── simulation.py    # Component library, Antoine VP, simulate_flash
+│   │   │   └── thermo.py        # Mixture enthalpy, Cp, density, MW
 │   │   └── models/
 │   │       ├── orm.py           # SQLAlchemy models (User, Project, Simulation, …)
 │   │       └── schemas.py       # Pydantic request / response schemas
@@ -236,7 +238,19 @@ All variables can be set in `backend/.env` or as environment variables.
 ## Component library
 
 Pre-loaded thermodynamic properties (Tc, Pc, ω, Antoine constants) for:
-benzene, toluene, ethanol, water, methane, propane, methanol, acetone, n-hexane, n-heptane.
+benzene, toluene, ethanol, water, methanol, acetone, n-hexane, n-heptane.
+
+### Activity coefficient model
+
+The flash drum uses the **Wilson equation** (modified Raoult's law: K_i = γ_i · VP_i / P) with successive substitution to converge liquid-phase compositions. Binary Wilson parameters (Λ_ij) are pre-loaded for:
+
+| Pair | Notes |
+|---|---|
+| ethanol / water | Reproduces ~20–25 % vapour at 80 °C, 1 bar, 50/50 feed |
+| methanol / water | Similar hydrogen-bonding behaviour |
+| acetone / water | Positive deviations; no azeotrope |
+
+Component pairs without listed parameters default to Λ_ij = 1 (ideal liquid, pure Raoult's law). Nearly-ideal pairs such as benzene/toluene and n-hexane/n-heptane are accurate without correction.
 
 ---
 

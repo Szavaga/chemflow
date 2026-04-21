@@ -15,6 +15,8 @@ from typing import Optional
 import numpy as np
 from scipy.optimize import brentq
 
+from app.core.activity import wilson_gammas
+
 R_GAS = 8.314  # J/(mol·K)
 
 
@@ -108,35 +110,56 @@ def _rr_objective(psi: float, z: np.ndarray, K: np.ndarray) -> float:
 
 
 def simulate_flash(inp: FlashInput) -> FlashResult:
-    """Isothermal flash via Rachford-Rice with Raoult's-law K-values."""
-    comps = [COMPONENT_LIBRARY[c] for c in inp.components]
+    """Isothermal flash via Rachford-Rice with Wilson activity coefficients.
+
+    Uses modified Raoult's law  K_i = γ_i(x) · VP_i(T) / P  with successive
+    substitution on the liquid composition.  Pairs without Wilson parameters
+    default to γ_i = 1 (ideal, Raoult's law).
+    """
+    comp_ids = inp.components
+    comps    = [COMPONENT_LIBRARY[c] for c in comp_ids]
     z = np.array(inp.feed_composition, dtype=float)
     z /= z.sum()
+    VP = np.array([c.vapor_pressure(inp.temperature) for c in comps])
 
-    K = np.array([c.vapor_pressure(inp.temperature) / inp.pressure for c in comps])
+    # Initialise K from Wilson γ at feed composition
+    x     = z.copy()
+    gamma = np.array([wilson_gammas(dict(zip(comp_ids, x.tolist())))[c] for c in comp_ids])
+    K     = gamma * VP / inp.pressure
 
-    # Trivial checks
-    if np.sum(z * K) <= 1.0:
-        return FlashResult(0.0, inp.feed_flow, 0.0, list(z), [0.0] * len(z),
-                           list(K), True, "Sub-cooled liquid — below bubble point")
-    if np.sum(z / K) <= 1.0:
-        return FlashResult(1.0, 0.0, inp.feed_flow, [0.0] * len(z), list(z),
-                           list(K), True, "Superheated vapour — above dew point")
+    psi = 0.5
+    converged, msg = False, "Maximum iterations reached"
 
-    psi_lo = 1.0 / (1.0 - float(K.max())) + 1e-9
-    psi_hi = 1.0 / (1.0 - float(K.min())) - 1e-9
-    psi_lo, psi_hi = max(psi_lo, 1e-9), min(psi_hi, 1.0 - 1e-9)
+    for _ in range(50):
+        if np.sum(z * K) <= 1.0:
+            return FlashResult(0.0, inp.feed_flow, 0.0, list(z), [0.0] * len(z),
+                               list(K), True, "Sub-cooled liquid — below bubble point")
+        if np.sum(z / K) <= 1.0:
+            return FlashResult(1.0, 0.0, inp.feed_flow, [0.0] * len(z), list(z),
+                               list(K), True, "Superheated vapour — above dew point")
 
-    try:
-        psi = brentq(_rr_objective, psi_lo, psi_hi, args=(z, K), xtol=1e-12, maxiter=300)
-        converged, msg = True, "Converged successfully"
-    except ValueError as exc:
-        psi, converged, msg = 0.5, False, f"Solver failed: {exc}"
+        psi_lo = max(1.0 / (1.0 - float(K.max())) + 1e-9, 1e-9)
+        psi_hi = min(1.0 / (1.0 - float(K.min())) - 1e-9, 1.0 - 1e-9)
 
-    x = z / (1.0 + psi * (K - 1.0))
-    y = K * x
-    x /= x.sum()
-    y /= y.sum()
+        try:
+            psi = brentq(_rr_objective, psi_lo, psi_hi, args=(z, K), xtol=1e-12, maxiter=300)
+        except ValueError as exc:
+            converged, msg = False, f"Solver failed: {exc}"
+            break
+
+        x_new   = z / (1.0 + psi * (K - 1.0));  x_new /= x_new.sum()
+        gamma_new = np.array(
+            [wilson_gammas(dict(zip(comp_ids, x_new.tolist())))[c] for c in comp_ids]
+        )
+        K_new = gamma_new * VP / inp.pressure
+
+        if np.max(np.abs(K_new - K) / np.maximum(K, 1e-10)) < 1e-6:
+            x, gamma, K = x_new, gamma_new, K_new
+            converged, msg = True, "Converged successfully"
+            break
+        x, gamma, K = x_new, gamma_new, K_new
+
+    y = K * x;  y /= y.sum()
 
     return FlashResult(
         vapor_fraction=float(psi),

@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 from scipy.optimize import brentq
 
+from app.core.activity import wilson_gammas
 from app.core.simulation import COMPONENT_LIBRARY
 from app.core.thermo import (
     _extra,
@@ -463,17 +464,25 @@ class PFR:
 
 class Flash:
     """
-    Isothermal two-phase VLE split using Raoult's-law K-values.
+    Isothermal two-phase VLE split using modified Raoult's law with Wilson
+    activity coefficients for non-ideal liquid phases.
 
-    Wraps the Rachford-Rice solver from the existing engine but accepts and
-    returns Stream objects.  All components must be present in COMPONENT_LIBRARY
-    (Antoine parameters required for vapour pressure).
+        K_i = γ_i(x) · VP_i(T) / P
+
+    Wilson γ_i are iterated via successive substitution until K-values
+    converge (max relative change < 1e-6, up to 50 outer iterations).
+    Component pairs without Wilson parameters default to γ_i = 1 (ideal,
+    Raoult's law).
+
+    All components must be present in COMPONENT_LIBRARY (Antoine parameters
+    required for vapour pressure).
 
     Produces two outlet streams: ``liquid`` (index 0) and ``vapor`` (index 1).
     Zero-flow streams are returned for trivial (all-liquid or all-vapour) cases.
-
-    TODO: replace Raoult's-law K-values with NRTL/PR-EOS for non-ideal systems.
     """
+
+    _MAX_SS_ITER = 50
+    _SS_TOL      = 1e-6
 
     def solve(
         self,
@@ -499,43 +508,79 @@ class Flash:
             )
 
         comps = list(feed.composition)
-        z = np.array([feed.composition[c] for c in comps])
-        K = np.array([COMPONENT_LIBRARY[c].vapor_pressure(T) / P for c in comps])
+        z     = np.array([feed.composition[c] for c in comps])
+        VP    = np.array([COMPONENT_LIBRARY[c].vapor_pressure(T) for c in comps])
 
-        # --- trivial checks --------------------------------------------------
-        if np.sum(z * K) <= 1.0:
-            liq = Stream(liquid_name, T, P, feed.flow, dict(feed.composition), 0.0)
-            vap = Stream(vapor_name,  T, P, 0.0,       dict(feed.composition), 1.0)
-            return [liq, vap], {
-                "vapor_fraction": 0.0,
-                "message": "Sub-cooled liquid — below bubble point",
-                "K_values": dict(zip(comps, K.tolist())),
-            }
+        # ── Successive-substitution outer loop ────────────────────────────────
+        # Initialise K from Wilson γ evaluated at feed composition (x = z).
+        x      = z.copy()
+        gamma  = np.array([wilson_gammas(dict(zip(comps, x.tolist())))[c] for c in comps])
+        K      = gamma * VP / P
 
-        if np.sum(z / K) <= 1.0:
-            liq = Stream(liquid_name, T, P, 0.0,       dict(feed.composition), 0.0)
-            vap = Stream(vapor_name,  T, P, feed.flow, dict(feed.composition), 1.0)
-            return [liq, vap], {
-                "vapor_fraction": 1.0,
-                "message": "Superheated vapour — above dew point",
-                "K_values": dict(zip(comps, K.tolist())),
-            }
+        psi        = 0.5        # will be overwritten
+        converged  = False
+        msg        = "Maximum iterations reached — K-values may not be converged"
+        ss_iters   = 0
 
-        # --- Rachford-Rice solver --------------------------------------------
-        psi_lo = max(1.0 / (1.0 - float(K.max())) + 1e-9, 1e-9)
-        psi_hi = min(1.0 / (1.0 - float(K.min())) - 1e-9, 1.0 - 1e-9)
+        for ss_iter in range(self._MAX_SS_ITER):
+            ss_iters = ss_iter + 1
 
-        try:
-            psi = brentq(
-                _rr_objective, psi_lo, psi_hi, args=(z, K),
-                xtol=1e-12, maxiter=300,
+            # ── trivial checks ────────────────────────────────────────────────
+            if np.sum(z * K) <= 1.0:
+                liq = Stream(liquid_name, T, P, feed.flow, dict(feed.composition), 0.0)
+                vap = Stream(vapor_name,  T, P, 0.0,       dict(feed.composition), 1.0)
+                return [liq, vap], {
+                    "vapor_fraction": 0.0,
+                    "message": "Sub-cooled liquid — below bubble point",
+                    "K_values": dict(zip(comps, K.tolist())),
+                    "activity_coefficients": dict(zip(comps, gamma.tolist())),
+                    "ss_iterations": ss_iters,
+                }
+
+            if np.sum(z / K) <= 1.0:
+                liq = Stream(liquid_name, T, P, 0.0,       dict(feed.composition), 0.0)
+                vap = Stream(vapor_name,  T, P, feed.flow, dict(feed.composition), 1.0)
+                return [liq, vap], {
+                    "vapor_fraction": 1.0,
+                    "message": "Superheated vapour — above dew point",
+                    "K_values": dict(zip(comps, K.tolist())),
+                    "activity_coefficients": dict(zip(comps, gamma.tolist())),
+                    "ss_iterations": ss_iters,
+                }
+
+            # ── Rachford-Rice inner solve ─────────────────────────────────────
+            psi_lo = max(1.0 / (1.0 - float(K.max())) + 1e-9, 1e-9)
+            psi_hi = min(1.0 / (1.0 - float(K.min())) - 1e-9, 1.0 - 1e-9)
+
+            try:
+                psi = brentq(
+                    _rr_objective, psi_lo, psi_hi, args=(z, K),
+                    xtol=1e-12, maxiter=300,
+                )
+            except ValueError as exc:
+                psi       = 0.5
+                converged = False
+                msg       = f"Rachford-Rice failed: {exc}"
+                break
+
+            # ── Update liquid composition and activity coefficients ───────────
+            x_new   = z / (1.0 + psi * (K - 1.0));  x_new /= x_new.sum()
+            gamma_new = np.array(
+                [wilson_gammas(dict(zip(comps, x_new.tolist())))[c] for c in comps]
             )
-            converged, msg = True, "Converged — two-phase equilibrium"
-        except ValueError as exc:
-            psi, converged, msg = 0.5, False, f"Rachford-Rice failed: {exc}"
+            K_new = gamma_new * VP / P
 
-        x = z / (1.0 + psi * (K - 1.0));  x /= x.sum()
-        y = K * x;                         y /= y.sum()
+            # ── Convergence check ─────────────────────────────────────────────
+            rel_change = np.max(np.abs(K_new - K) / np.maximum(K, 1e-10))
+            x, gamma, K = x_new, gamma_new, K_new
+
+            if rel_change < self._SS_TOL:
+                converged = True
+                msg       = f"Converged — two-phase equilibrium ({ss_iters} iterations)"
+                break
+
+        # ── Build output streams ──────────────────────────────────────────────
+        y = K * x;  y /= y.sum()
 
         x_dict = dict(zip(comps, x.tolist()))
         y_dict = dict(zip(comps, y.tolist()))
@@ -547,6 +592,8 @@ class Flash:
             "converged": converged,
             "message": msg,
             "K_values": dict(zip(comps, K.tolist())),
+            "activity_coefficients": dict(zip(comps, gamma.tolist())),
+            "ss_iterations": ss_iters,
             "liquid_flow_mol_s": liq.flow,
             "vapor_flow_mol_s": vap.flow,
         }

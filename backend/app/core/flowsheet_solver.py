@@ -61,8 +61,6 @@ from app.core.unit_ops import (
 NodeDict = dict[str, Any]
 EdgeDict = dict[str, Any]
 
-_FALLBACK_COMPOSITION = {"water": 1.0}
-_FALLBACK_T, _FALLBACK_P = 25.0, 1.0
 
 
 class FlowsheetSolver:
@@ -118,7 +116,10 @@ class FlowsheetSolver:
                     f"Node '{node_id}' ({node_type}): {exc}"
                 )
                 converged = False
-                outlets  = [_zero_stream(f"{node_id}_err", inlets)]
+                try:
+                    outlets = [_zero_stream(f"{node_id}_err", inlets)]
+                except SimulationError:
+                    outlets = []
                 summary  = {"error": str(exc)}
 
             node_outlets[node_id]   = outlets
@@ -127,7 +128,7 @@ class FlowsheetSolver:
             # Register each outlet stream under the id of its leaving edge.
             # ``source_handle`` (int-as-string) selects the outlet index.
             for edge in self._edges:
-                if edge.get("source") == node_id:
+                if edge.get("source") == node_id and outlets:
                     out_idx = _parse_handle(edge.get("source_handle", "0"))
                     out_idx = min(out_idx, len(outlets) - 1)
                     edge_streams[edge["id"]] = outlets[out_idx]
@@ -207,10 +208,12 @@ class FlowsheetSolver:
             if edge.get("target") == node_id:
                 src_id = edge.get("source", "")
                 if src_id in node_outlets:
+                    src_outlets = node_outlets[src_id]
+                    if not src_outlets:
+                        continue
                     out_idx = _parse_handle(edge.get("source_handle", "0"))
-                    outlets = node_outlets[src_id]
-                    out_idx = min(out_idx, len(outlets) - 1)
-                    inlets.append(outlets[out_idx])
+                    out_idx = min(out_idx, len(src_outlets) - 1)
+                    inlets.append(src_outlets[out_idx])
         return inlets
 
     def _solve_node(
@@ -347,10 +350,11 @@ def _parse_handle(raw: Any) -> int:
 
 def _zero_stream(name: str, inlets: list[Stream]) -> Stream:
     """Return a zero-flow placeholder that inherits composition from the first
-    inlet (used for error recovery so downstream nodes receive a valid Stream)."""
-    if inlets and inlets[0].composition:
-        comp = dict(inlets[0].composition)
-        T, P = inlets[0].temperature, inlets[0].pressure
-    else:
-        comp, T, P = _FALLBACK_COMPOSITION, _FALLBACK_T, _FALLBACK_P
-    return Stream(name, T, P, 0.0, comp, 0.0)
+    inlet (used for error recovery so downstream nodes receive a valid Stream).
+    Raises SimulationError if no inlet is available to inherit from."""
+    if not inlets or not inlets[0].composition:
+        raise SimulationError(
+            f"Cannot create placeholder stream '{name}': no inlet stream available"
+        )
+    src = inlets[0]
+    return Stream(name, src.temperature, src.pressure, 0.0, dict(src.composition), 0.0)
