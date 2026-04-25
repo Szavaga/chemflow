@@ -346,6 +346,103 @@ class PinchResultResponse(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Chemical Components
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ComponentCreate(BaseModel):
+    """Body for POST /api/components — create a project-scoped custom component."""
+    name: str = Field(min_length=1, max_length=255)
+    cas_number: str = Field(min_length=5, max_length=32,
+                            description="CAS Registry Number, e.g. '64-17-5'")
+    formula: str | None = Field(default=None, max_length=64)
+    mw: float = Field(gt=0, description="Molecular weight (g/mol)")
+    tc: float = Field(gt=0, description="Critical temperature (K)")
+    pc: float = Field(gt=0, description="Critical pressure (Pa)")
+    omega: float = Field(gt=0, lt=2, description="Acentric factor (dimensionless)")
+    antoine_a: float | None = None
+    antoine_b: float | None = None
+    antoine_c: float | None = None
+    antoine_tmin: float | None = Field(default=None, description="Antoine valid Tmin (K)")
+    antoine_tmax: float | None = Field(default=None, description="Antoine valid Tmax (K)")
+    antoine_units: str | None = Field(default=None, pattern="^(mmHg|Pa)$")
+    mu_coeffs: list[float] | None = Field(default=None, max_length=4,
+                                          description="Viscosity poly coeffs [a,b,c,d]")
+    project_id: str = Field(description="Project this component is scoped to")
+
+    @field_validator("antoine_tmax")
+    @classmethod
+    def tmax_gt_tmin(cls, v: float | None, info) -> float | None:
+        tmin = info.data.get("antoine_tmin")
+        if v is not None and tmin is not None and v <= tmin:
+            raise ValueError("antoine_tmax must be greater than antoine_tmin")
+        return v
+
+    @field_validator("antoine_b", "antoine_c", "antoine_tmin", "antoine_tmax", "antoine_units",
+                     mode="after")
+    @classmethod
+    def antoine_all_or_none(cls, v, info) -> Any:
+        antoine_fields = ("antoine_a", "antoine_b", "antoine_c",
+                          "antoine_tmin", "antoine_tmax", "antoine_units")
+        provided = {f: info.data.get(f) for f in antoine_fields if f in info.data}
+        any_set = any(val is not None for val in provided.values())
+        all_set = all(val is not None for val in provided.values())
+        if any_set and not all_set:
+            raise ValueError(
+                "All Antoine fields (A, B, C, tmin, tmax, units) must be provided together or not at all"
+            )
+        return v
+
+
+class ComponentUpdate(BaseModel):
+    """Body for PUT /api/components/{id} — only project-scoped components."""
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    formula: str | None = Field(default=None, max_length=64)
+    mw: float | None = Field(default=None, gt=0)
+    tc: float | None = Field(default=None, gt=0)
+    pc: float | None = Field(default=None, gt=0)
+    omega: float | None = Field(default=None, gt=0, lt=2)
+    antoine_a: float | None = None
+    antoine_b: float | None = None
+    antoine_c: float | None = None
+    antoine_tmin: float | None = None
+    antoine_tmax: float | None = None
+    antoine_units: str | None = Field(default=None, pattern="^(mmHg|Pa)$")
+    mu_coeffs: list[float] | None = Field(default=None, max_length=4)
+
+
+class ComponentResponse(BaseModel):
+    id: str
+    name: str
+    cas_number: str
+    formula: str | None
+    mw: float | None
+    tc: float | None
+    pc: float | None
+    omega: float | None
+    antoine_a: float | None
+    antoine_b: float | None
+    antoine_c: float | None
+    antoine_tmin: float | None
+    antoine_tmax: float | None
+    antoine_units: str | None
+    mu_coeffs: list[float] | None
+    is_global: bool
+    project_id: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AntoineValidateResponse(BaseModel):
+    cas_number: str
+    T_K: float
+    valid: bool
+    T_min_K: float | None
+    T_max_K: float | None
+    message: str
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MPC Control Studio
 # ══════════════════════════════════════════════════════════════════════════════
 

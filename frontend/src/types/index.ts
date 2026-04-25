@@ -224,6 +224,56 @@ export interface PinchResult {
   energy_saving_kw: number | null
 }
 
+// ── Chemical Components ───────────────────────────────────────────────────────
+
+export interface ChemicalComponent {
+  id: string
+  name: string
+  cas_number: string
+  formula: string | null
+  mw: number | null
+  tc: number | null
+  pc: number | null           // Pa
+  omega: number | null
+  antoine_a: number | null
+  antoine_b: number | null
+  antoine_c: number | null
+  antoine_tmin: number | null // K
+  antoine_tmax: number | null // K
+  antoine_units: 'mmHg' | 'Pa' | null
+  mu_coeffs: number[] | null
+  is_global: boolean
+  project_id: string | null
+  created_at: string
+}
+
+export interface ComponentCreate {
+  name: string
+  cas_number: string
+  formula?: string
+  mw: number
+  tc: number
+  pc: number
+  omega: number
+  antoine_a?: number
+  antoine_b?: number
+  antoine_c?: number
+  antoine_tmin?: number
+  antoine_tmax?: number
+  antoine_units?: 'mmHg' | 'Pa'
+  mu_coeffs?: number[]
+  project_id: string
+}
+
+export interface AntoineValidateResponse {
+  cas_number: string
+  T_K: number
+  valid: boolean
+  T_min_K: number | null
+  T_max_K: number | null
+  message: string
+}
+
 // ── MPC Control Studio ────────────────────────────────────────────────────────
 
 export interface MPCNodeSummary {

@@ -20,7 +20,9 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
+    Float,
     ForeignKey,
     JSON,
     String,
@@ -227,6 +229,54 @@ class SimulationResult(Base):
     node_summaries:     Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     simulation: Mapped["Simulation"] = relationship("Simulation", back_populates="result")
+
+
+# ── Chemical components ───────────────────────────────────────────────────────
+
+class ChemicalComponent(Base):
+    """
+    Chemical component with thermodynamic properties.
+
+    Global components (is_global=True, project_id=None) are seeded from the
+    'chemicals' package and are read-only via the API.
+
+    Project-scoped components (is_global=False, project_id=<uuid>) are created
+    by users and are editable/deletable only by the owning project.
+
+    Antoine equation stored as  log10(P/units) = A − B / (T + C)
+    where T is in °C and units are given by antoine_units ("mmHg" or "Pa").
+    Evaluation is only valid in [antoine_tmin, antoine_tmax] (K); outside this
+    range ThermodynamicRangeError must be raised.
+    """
+
+    __tablename__ = "chemical_components"
+    __table_args__ = (UniqueConstraint("cas_number", name="uq_chemical_components_cas"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    cas_number: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    formula: Mapped[str | None] = mapped_column(String(64))
+    mw: Mapped[float | None] = mapped_column(Float)
+    tc: Mapped[float | None] = mapped_column(Float)          # K
+    pc: Mapped[float | None] = mapped_column(Float)          # Pa
+    omega: Mapped[float | None] = mapped_column(Float)
+    antoine_a: Mapped[float | None] = mapped_column(Float)
+    antoine_b: Mapped[float | None] = mapped_column(Float)
+    antoine_c: Mapped[float | None] = mapped_column(Float)
+    antoine_tmin: Mapped[float | None] = mapped_column(Float)  # K
+    antoine_tmax: Mapped[float | None] = mapped_column(Float)  # K
+    antoine_units: Mapped[str | None] = mapped_column(String(8))   # "mmHg" or "Pa"
+    mu_coeffs: Mapped[list | None] = mapped_column(JSON)           # [a, b, c, d]
+    is_global: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
 
 
 # ── Legacy: quick-simulation tables ───────────────────────────────────────────

@@ -1,5 +1,8 @@
 import axios from 'axios'
 import type {
+  AntoineValidateResponse,
+  ChemicalComponent,
+  ComponentCreate,
   CSTRResult,
   FlashResult,
   Flowsheet,
@@ -79,6 +82,36 @@ export const fetchResults = (simId: string): Promise<SimulationResult[]> =>
 
 export const runPinchAnalysis = (simId: string, req: PinchRequest): Promise<PinchResult> =>
   api.post<PinchResult>(`/simulations/${simId}/pinch`, req).then(r => r.data)
+
+// ── Chemical Components ───────────────────────────────────────────────────────
+
+export const fetchComponents = (
+  search?: string,
+  limit = 20,
+): Promise<ChemicalComponent[]> =>
+  api
+    .get<ChemicalComponent[]>('/components', { params: { search, limit } })
+    .then(r => r.data)
+
+export const fetchComponentByCas = (cas: string): Promise<ChemicalComponent> =>
+  api.get<ChemicalComponent>(`/components/${encodeURIComponent(cas)}`).then(r => r.data)
+
+export const createComponent = (data: ComponentCreate): Promise<ChemicalComponent> =>
+  api.post<ChemicalComponent>('/components', data).then(r => r.data)
+
+export const updateComponent = (
+  id: string,
+  data: Partial<ComponentCreate>,
+): Promise<ChemicalComponent> =>
+  api.put<ChemicalComponent>(`/components/${id}`, data).then(r => r.data)
+
+export const deleteComponent = (id: string): Promise<void> =>
+  api.delete(`/components/${id}`).then(() => undefined)
+
+export const validateAntoine = (cas: string, T: number): Promise<AntoineValidateResponse> =>
+  api
+    .get<AntoineValidateResponse>('/components/validate-antoine', { params: { cas, T } })
+    .then(r => r.data)
 
 // ── Legacy quick simulations (stateless) ─────────────────────────────────────
 

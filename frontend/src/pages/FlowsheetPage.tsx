@@ -39,17 +39,19 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { fetchSimulation, runPinchAnalysis, runSimulation, saveFlowsheet } from '../api/client'
+import { fetchComponents, fetchSimulation, runPinchAnalysis, runSimulation, saveFlowsheet } from '../api/client'
 import { UnitNode } from '../components/flowsheet/UnitNode'
 import { StreamEdge } from '../components/flowsheet/StreamEdge'
 import { ResultsPanel } from '../components/results/ResultsPanel'
 import { ControlStudio } from '../components/mpc/ControlStudio'
+import { ComponentManager } from '../components/components/ComponentManager'
 import type {
   Connection,
   Edge,
   Node,
 } from '@xyflow/react'
 import type {
+  ChemicalComponent,
   FlowsheetEdge,
   FlowsheetNode,
   MPCNodeSummary,
@@ -96,8 +98,6 @@ const nextId = () => `n${_ctr++}`
 
 // ── Shared form helpers ───────────────────────────────────────────────────────
 
-const COMPONENTS_LIST = ['benzene', 'toluene', 'ethanol', 'water', 'methane', 'propane']
-
 type D = Record<string, unknown>
 
 function labelCls() {
@@ -128,20 +128,123 @@ function ParamField({ label, children }: { label: string; children: React.ReactN
   )
 }
 
+// ── Feed component sub-panel (dynamic, CAS-keyed) ─────────────────────────────
+
+function FeedComponentPanel({
+  nodeId,
+  data,
+  onChange,
+  projectId,
+}: {
+  nodeId: string
+  data: D
+  onChange: (id: string, d: D) => void
+  projectId: string
+}) {
+  const comp = (data.composition as Record<string, number>) ?? {}
+  const [allComponents, setAllComponents] = useState<ChemicalComponent[]>([])
+  const [showManager, setShowManager] = useState(false)
+
+  useEffect(() => {
+    fetchComponents(undefined, 100)
+      .then(setAllComponents)
+      .catch(() => {/* ignore */})
+  }, [])
+
+  const setCasValue = (cas: string, val: number) =>
+    onChange(nodeId, { ...data, composition: { ...comp, [cas]: val } })
+
+  const removeCas = (cas: string) => {
+    const next = { ...comp }
+    delete next[cas]
+    onChange(nodeId, { ...data, composition: next })
+  }
+
+  const addComponent = (c: ChemicalComponent) => {
+    if (!(c.cas_number in comp)) {
+      onChange(nodeId, { ...data, composition: { ...comp, [c.cas_number]: 0 } })
+    }
+    setShowManager(false)
+  }
+
+  const labelFor = (cas: string) => {
+    const found = allComponents.find(c => c.cas_number === cas)
+    return found ? found.name : cas
+  }
+
+  const missingProps = (cas: string) => {
+    const found = allComponents.find(c => c.cas_number === cas)
+    if (!found) return false
+    return !found.tc || !found.pc || !found.omega
+  }
+
+  return (
+    <>
+      <p className="text-[11px] text-slate-400 mb-1 font-medium">
+        Composition (mole fractions)
+      </p>
+      {Object.keys(comp).length === 0 && (
+        <p className="text-[11px] text-slate-500 italic mb-2">
+          No components added yet.
+        </p>
+      )}
+      {Object.keys(comp).map(cas => (
+        <div key={cas} className="mb-2">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[11px] text-slate-300 truncate max-w-[130px]" title={cas}>
+              {labelFor(cas)}
+            </span>
+            <div className="flex items-center gap-1">
+              {missingProps(cas) && (
+                <span className="text-[9px] bg-amber-800 text-amber-200 px-1 rounded font-bold"
+                  title="Missing Tc/Pc/ω — flash calculations may fail">⚠ props</span>
+              )}
+              <button onClick={() => removeCas(cas)}
+                className="text-slate-600 hover:text-red-400 text-[13px] leading-none">×</button>
+            </div>
+          </div>
+          <input type="number" step="0.01" min="0" max="1" className={inputCls()}
+            value={comp[cas] ?? 0}
+            onChange={e => setCasValue(cas, +e.target.value)} />
+        </div>
+      ))}
+      <button
+        onClick={() => setShowManager(true)}
+        className="w-full mt-1 py-1 rounded text-[11px] border border-dashed border-slate-600
+                   text-slate-400 hover:border-teal-500 hover:text-teal-400 transition-colors"
+      >
+        + Browse components
+      </button>
+      <p className="text-[10px] text-slate-500 mt-1">
+        Fractions are normalised by the solver. Keys are CAS numbers.
+      </p>
+
+      {showManager && (
+        <ComponentManager
+          projectId={projectId}
+          activeCasList={Object.keys(comp)}
+          onAdd={addComponent}
+          onClose={() => setShowManager(false)}
+        />
+      )}
+    </>
+  )
+}
+
 // ── Unit-specific parameter fields ────────────────────────────────────────────
 
 function UnitParams({
   node,
   onChange,
+  projectId,
 }: {
   node: Node
   onChange: (id: string, data: D) => void
+  projectId: string
 }) {
   const data = node.data as D
   const type = data.nodeType as string
   const u    = (k: string, v: unknown) => onChange(node.id, { ...data, [k]: v })
-  const comp = (data.composition as Record<string, number>) ?? {}
-  const sc   = (c: string, v: number) => u('composition', { ...comp, [c]: v })
 
   return (
     <div className="px-4 py-3">
@@ -172,19 +275,12 @@ function UnitParams({
               value={(data.pressure_bar as number) ?? 1}
               onChange={e => u('pressure_bar', +e.target.value)} />
           </ParamField>
-          <p className="text-[11px] text-slate-400 mb-1.5 font-medium">
-            Composition (mole fractions)
-          </p>
-          {COMPONENTS_LIST.map(c => (
-            <ParamField key={c} label={c}>
-              <input type="number" step="0.01" min="0" max="1" className={inputCls()}
-                value={comp[c] ?? 0}
-                onChange={e => sc(c, +e.target.value)} />
-            </ParamField>
-          ))}
-          <p className="text-[10px] text-slate-500 mt-1">
-            Fractions are normalised by the solver.
-          </p>
+          <FeedComponentPanel
+            nodeId={node.id}
+            data={data}
+            onChange={onChange}
+            projectId={projectId}
+          />
         </>
       )}
 
@@ -253,14 +349,16 @@ function UnitParams({
             <select className={selectCls()}
               value={(data.reactant as string) ?? 'benzene'}
               onChange={e => u('reactant', e.target.value)}>
-              {COMPONENTS_LIST.map(c => <option key={c}>{c}</option>)}
+              {['benzene', 'toluene', 'ethanol', 'water', 'methanol', 'acetone',
+                'n_hexane', 'n_heptane', 'methane', 'propane'].map(c => <option key={c}>{c}</option>)}
             </select>
           </ParamField>
           <ParamField label="Product component">
             <select className={selectCls()}
               value={(data.product_comp as string) ?? 'toluene'}
               onChange={e => u('product_comp', e.target.value)}>
-              {COMPONENTS_LIST.map(c => <option key={c}>{c}</option>)}
+              {['benzene', 'toluene', 'ethanol', 'water', 'methanol', 'acetone',
+                'n_hexane', 'n_heptane', 'methane', 'propane'].map(c => <option key={c}>{c}</option>)}
             </select>
           </ParamField>
           <ParamField label="Conversion (0–1)">
@@ -477,7 +575,12 @@ function InletConditions({
                 <p className="text-[10px] text-slate-400 mb-1 font-medium">
                   Composition (mole fractions)
                 </p>
-                {COMPONENTS_LIST.map(c => (
+                {Object.keys(edit.composition).length === 0 && (
+                  <p className="text-[11px] text-slate-500 italic mb-1">
+                    No components — connect a Feed node to set composition.
+                  </p>
+                )}
+                {Object.keys(edit.composition).map(c => (
                   <ParamField key={c} label={c}>
                     <input type="number" step="0.01" min="0" max="1" className={inputCls()}
                       value={edit.composition[c] ?? 0}
@@ -506,6 +609,7 @@ function ConfigPanel({
   onClose,
   onDelete,
   onOpenControlStudio,
+  projectId,
 }: {
   node:     Node
   edges:    Edge[]
@@ -514,6 +618,7 @@ function ConfigPanel({
   onClose:  () => void
   onDelete: (id: string) => void
   onOpenControlStudio?: () => void
+  projectId: string
 }) {
   const data = node.data as D
   const type = data.nodeType as string
@@ -568,7 +673,7 @@ function ConfigPanel({
         <p className="text-[10px] font-bold uppercase tracking-widest text-teal-400 px-4 pt-3 pb-1">
           Parameters
         </p>
-        <UnitParams node={node} onChange={onChange} />
+        <UnitParams node={node} onChange={onChange} projectId={projectId} />
       </div>
 
       {/* Inlet conditions section */}
@@ -592,6 +697,7 @@ function Canvas({ simId }: { simId: string }) {
   const { screenToFlowPosition } = useReactFlow()
 
   const [simName, setSimName]            = useState('')
+  const [projectId, setProjectId]        = useState('')
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [sel, setSel]                    = useState<Node | null>(null)
@@ -638,6 +744,7 @@ function Canvas({ simId }: { simId: string }) {
             data: {},
           })))
         }
+        setProjectId(sim.project_id)
         if (sim.result) {
           setResult(sim.result)
           setWarnings(sim.result.warnings ?? [])
@@ -1006,6 +1113,7 @@ function Canvas({ simId }: { simId: string }) {
                 onChange={updNode}
                 onClose={() => setSel(null)}
                 onDelete={deleteNode}
+                projectId={projectId}
                 onOpenControlStudio={
                   (sel.data as D).nodeType === 'cstr'
                     ? () => { setControlStudioNodeId(sel.id); setSel(null) }

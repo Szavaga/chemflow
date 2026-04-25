@@ -5,11 +5,12 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 ## Features
 
 - **Visual flowsheet editor** — drag-and-drop unit ops onto a canvas, draw stream connections
-- **Steady-state solver** — topological (Kahn's algorithm) propagation through the flowsheet
+- **SCC-based steady-state solver** — Strongly Connected Component analysis with Wegstein-accelerated recycle convergence; nested loops solved in condensation-DAG order
+- **Dynamic component library** — 50 global components seeded from the `chemicals` package; users can add project-scoped custom components via the browser-based Component Manager
 - **Per-node configuration panel** — click any node to edit parameters and view inlet conditions
 - **Results panel** — stream table, energy balance, unit-flow bar chart, Excel export
 - **Embedded Control Studio** — real-time NMPC loop for CSTR nodes, seeded from the solved operating point (WebSocket, GEKKO/IPOPT)
-- **JWT authentication** — register / login; all flowsheets are per-user
+- **JWT authentication** — register / login; all flowsheets, simulations, and custom components are per-user
 
 ## Unit operations
 
@@ -24,6 +25,42 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 | CSTR | Volume (L), temperature (°C), coolant T (K) | Arrhenius kinetics + `fsolve` steady-state balance |
 | Pump | ΔP (bar), efficiency | Shaft-work calculation |
 | Product | — | Sink / stream recorder |
+
+## Recycle solver
+
+The flowsheet solver uses **Strongly Connected Component (SCC) analysis** via NetworkX:
+
+1. Builds a directed graph of nodes and edges
+2. Finds all SCCs with `nx.condensation()` — singletons are acyclic nodes; larger SCCs are recycle loops
+3. Topologically sorts the condensation DAG so nested inner loops converge before outer loops are evaluated
+4. For each recycle SCC, selects the tear stream by heuristic (smallest estimated molar flow; tie-break: highest source in-degree) then runs **component-wise Wegstein acceleration**
+5. Falls back to 10 direct-substitution steps at iteration 50 if the residual exceeds 0.1, then restarts Wegstein history
+
+Convergence metadata is returned per loop:
+
+```json
+"recycle_loops": [
+  {
+    "tear_stream_id": "E_recycle",
+    "iterations": 12,
+    "final_residual": 3.4e-6,
+    "method_used": "wegstein",
+    "slow_convergence_warning": false
+  }
+]
+```
+
+## Component library
+
+Components are stored in PostgreSQL and served via REST. On first startup the seed script inserts **50 global components** (Tc, Pc, ω, MW, formula, Antoine coefficients where available) sourced from the `chemicals` package:
+
+water, ethanol, methanol, acetone, benzene, toluene, ethylene, propylene, n-butane, n-hexane, n-heptane, cyclohexane, acetic acid, ethyl acetate, chloroform, ammonia, carbon dioxide, nitrogen, oxygen, hydrogen, methane, ethane, propane, isobutane, n-pentane, isopentane, n-octane, styrene, vinyl chloride, acetaldehyde, formaldehyde, formic acid, phenol, aniline, glycerol, ethylene glycol, DMSO, THF, diethyl ether, acetonitrile, HCl, H₂S, SO₂, NO, CO, isoprene, p-xylene, o-xylene, m-xylene, cumene
+
+Global components are **read-only**. Engineers can add project-scoped **custom components** (name, CAS, MW, Tc, Pc, ω, optional Antoine coefficients) through the **Component Manager** modal in the Feed node config panel. Custom components are visible only to the owning project.
+
+### Activity coefficient model
+
+The flash drum uses the **Wilson equation** (modified Raoult's law: K_i = γ_i · VP_i / P) with successive substitution. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water, methanol/water, and acetone/water. All other pairs default to Λ_ij = 1 (ideal, pure Raoult's law).
 
 ## Control Studio (MPC)
 
@@ -41,7 +78,8 @@ Click **Open Control Studio** on any solved CSTR node to open the real-time cont
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 async, asyncpg |
-| Solver | NumPy, SciPy (Rachford-Rice, Wilson, fsolve) |
+| Solver | NumPy, SciPy (Rachford-Rice, Wilson, fsolve), NetworkX (SCC / condensation) |
+| Thermodynamics | `chemicals` ≥ 1.1.0 (Tc, Pc, ω, Antoine data for 50 components) |
 | MPC | GEKKO ≥ 1.0.6, IPOPT (NMPC + MHE) |
 | Frontend | React 18, TypeScript, Vite |
 | Canvas | @xyflow/react (React Flow v12) |
@@ -92,12 +130,14 @@ python -m venv .venv
 .venv\Scripts\activate        # PowerShell / CMD
 # source .venv/bin/activate   # macOS / Linux / Git Bash
 
-# Install dependencies (includes gekko for MPC)
+# Install dependencies (includes gekko for MPC, chemicals for component data)
 pip install -r requirements.txt
 
 # Start the dev server
 uvicorn main:app --reload
 ```
+
+The backend seeds the component library automatically on first startup.
 
 Backend is available at **http://localhost:8000**  
 Interactive API docs: **http://localhost:8000/docs**
@@ -142,11 +182,20 @@ docker compose up --build
 ```bash
 cd backend
 pip install -r requirements.txt
-pytest                   # ~65 s
+pytest                   # all tests
 pytest -v --tb=short     # verbose output
 ```
 
 Tests use an in-memory SQLite database (via aiosqlite) — no running Postgres required.
+
+| Test file | Coverage |
+|---|---|
+| `test_unit_ops.py` | Individual unit-op solvers (Mixer, Splitter, HEX, PFR, Flash, Pump, CSTR) |
+| `test_recycle.py` | Recycle convergence, analytical verification, recycle-node estimates |
+| `test_solver.py` | SCC ordering, nested loops, Wegstein fallback, ConvergenceError diagnostics |
+| `test_components.py` | Seed count (50), Antoine range validation, custom component scoping, fuzzy search |
+| `test_simulation_api.py` | Full API integration (auth → project → flowsheet → run) |
+| `test_pinch.py` | Pinch analysis (Q_H_min, Q_C_min, temperature intervals) |
 
 ---
 
@@ -159,17 +208,23 @@ chemflow/
 │   │   ├── api/
 │   │   │   ├── auth.py              # POST /auth/register, /auth/login
 │   │   │   ├── sims.py              # Project + Simulation + Flowsheet CRUD
+│   │   │   ├── components.py        # Dynamic component library (6 endpoints)
 │   │   │   ├── mpc.py               # MPC WebSocket + REST endpoints
 │   │   │   ├── health.py            # GET /api/health
 │   │   │   └── simulations.py       # Legacy quick-sim endpoints
 │   │   ├── core/
+│   │   │   ├── flowsheet_solver.py  # SCC-based solver with Wegstein recycle convergence
+│   │   │   ├── unit_ops.py          # Mixer, Splitter, HEX, PFR, Flash, Pump, CSTR, Stream
+│   │   │   ├── seed_components.py   # Seeds 50 global components from `chemicals` package
+│   │   │   ├── exceptions.py        # ThermodynamicRangeError
+│   │   │   ├── activity.py          # Wilson activity coefficients + binary parameters
+│   │   │   ├── simulation.py        # COMPONENT_LIBRARY, CAS_LOOKUP, resolve_composition
+│   │   │   ├── thermo.py            # Mixture enthalpy, Cp, density, MW
+│   │   │   ├── pinch.py             # Pinch analysis (composite curves, Q_H_min, Q_C_min)
+│   │   │   ├── process_metrics.py   # Overall conversion, energy efficiency, recycle ratio
+│   │   │   ├── context_builder.py   # Builds result context for API responses
 │   │   │   ├── auth.py              # get_current_user dependency
 │   │   │   ├── config.py            # Settings (DATABASE_URL, SECRET_KEY, …)
-│   │   │   ├── flowsheet_solver.py  # Topological steady-state solver
-│   │   │   ├── unit_ops.py          # Feed, Mixer, Splitter, HEX, PFR, Flash, Pump, CSTR
-│   │   │   ├── activity.py          # Wilson activity coefficients + binary parameters
-│   │   │   ├── simulation.py        # Component library, Antoine VP, simulate_flash
-│   │   │   ├── thermo.py            # Mixture enthalpy, Cp, density, MW
 │   │   │   └── mpc/
 │   │   │       ├── __init__.py
 │   │   │       ├── system_model.py  # CSTRModel: RK4, linearise, runaway checks
@@ -178,11 +233,15 @@ chemflow/
 │   │   │       ├── mhe_estimator.py # Moving Horizon Estimator (GEKKO IMODE=5)
 │   │   │       └── simulation_state.py  # SimulationState: observe, step, IAE, history
 │   │   └── models/
-│   │       ├── orm.py               # SQLAlchemy models (User, Project, Simulation, …)
-│   │       └── schemas.py           # Pydantic request / response schemas
+│   │       ├── orm.py               # SQLAlchemy models (User, Project, Simulation, ChemicalComponent, …)
+│   │       └── schemas.py           # Pydantic schemas (ComponentCreate, ComponentResponse, …)
 │   ├── tests/
-│   │   ├── test_unit_ops.py         # Unit-op solver tests
-│   │   └── test_simulation_api.py   # API integration tests
+│   │   ├── test_unit_ops.py
+│   │   ├── test_recycle.py
+│   │   ├── test_solver.py
+│   │   ├── test_components.py
+│   │   ├── test_simulation_api.py
+│   │   └── test_pinch.py
 │   ├── main.py
 │   └── requirements.txt
 ├── frontend/
@@ -193,10 +252,13 @@ chemflow/
 │       │   ├── flowsheet/
 │       │   │   ├── UnitNode.tsx     # Custom React Flow node (SVG icons + handles)
 │       │   │   └── StreamEdge.tsx   # Custom edge with hover stream tooltip
+│       │   ├── components/
+│       │   │   └── ComponentManager.tsx  # Modal: search/add components, create custom
 │       │   ├── mpc/
 │       │   │   └── ControlStudio.tsx  # Real-time MPC panel (charts + tuning controls)
 │       │   └── results/
-│       │       └── ResultsPanel.tsx # Stream table, energy cards, Recharts chart, Excel export
+│       │       ├── ResultsPanel.tsx # Stream table, energy cards, Recharts chart, Excel export
+│       │       └── PinchPanel.tsx   # Composite curves, temperature interval table
 │       ├── context/
 │       │   └── AuthContext.tsx      # JWT auth state + login/logout
 │       ├── hooks/
@@ -235,6 +297,17 @@ chemflow/
 | GET | `/simulations/{id}/results` | List results |
 | DELETE | `/simulations/{id}` | Delete simulation (cascades) |
 
+### Component library (require `Authorization: Bearer <token>`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/components` | Search global + project components (`?search=eth&limit=20`) |
+| GET | `/components/validate-antoine` | Check Antoine validity at temperature T (`?cas=…&T=…`) |
+| GET | `/components/{cas}` | Get full component data by CAS number |
+| POST | `/components` | Create project-scoped custom component |
+| PUT | `/components/{id}` | Update custom component (global components are read-only) |
+| DELETE | `/components/{id}` | Delete custom component |
+
 ### MPC Control Studio (require `Authorization: Bearer <token>`)
 
 | Method | Path | Description |
@@ -251,7 +324,6 @@ chemflow/
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/health` | Health check |
-| GET | `/api/components` | Built-in component library |
 | POST | `/api/simulate/flash` | One-shot flash drum |
 | POST | `/api/simulate/cstr` | One-shot CSTR |
 | POST | `/api/simulate/hex` | One-shot heat exchanger |
@@ -269,18 +341,6 @@ All variables can be set in `backend/.env` or as environment variables.
 | `JWT_ALGORITHM` | `HS256` | JWT algorithm |
 | `JWT_EXPIRE_MINUTES` | `1440` | Token lifetime (24 h) |
 | `DEBUG` | `false` | Enable debug mode |
-
----
-
-## Component library
-
-Pre-loaded thermodynamic properties (Tc, Pc, ω, Antoine constants, Cp, ΔHvap, ρ) for:
-
-benzene, toluene, ethanol, water, methanol, acetone, n-hexane, n-heptane, methane, ethane, propane, n-butane, isobutane, n-pentane, isopentane, cyclohexane, hydrogen, nitrogen, carbon dioxide, hydrogen sulfide, acetic acid, chloroform, diethyl ether.
-
-### Activity coefficient model
-
-The flash drum uses the **Wilson equation** (modified Raoult's law: K_i = γ_i · VP_i / P) with successive substitution to converge liquid-phase compositions. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water, methanol/water, and acetone/water. All other pairs default to Λ_ij = 1 (ideal liquid, pure Raoult's law).
 
 ---
 

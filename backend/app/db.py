@@ -34,6 +34,16 @@ async def init_db() -> None:
                 ADD COLUMN IF NOT EXISTS process_summary     TEXT,
                 ADD COLUMN IF NOT EXISTS node_summaries      JSONB
         """))
+        # chemical_components is fully managed by create_all (new table),
+        # but if deploying onto an existing DB that already has the table,
+        # ensure any new nullable columns are present.
+        await conn.execute(text("""
+            ALTER TABLE chemical_components
+                ADD COLUMN IF NOT EXISTS mu_coeffs   JSONB,
+                ADD COLUMN IF NOT EXISTS is_global   BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS project_id  TEXT REFERENCES projects(id) ON DELETE CASCADE,
+                ADD COLUMN IF NOT EXISTS created_by  TEXT REFERENCES users(id) ON DELETE SET NULL
+        """))
 
 
 async def get_db() -> AsyncSession:  # type: ignore[return]

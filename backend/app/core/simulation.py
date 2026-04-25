@@ -141,6 +141,50 @@ COMPONENT_LIBRARY: dict[str, ChemComponent] = {
 }
 
 
+# ── CAS-number → component-key lookup ────────────────────────────────────────
+# Used by the flowsheet solver to accept CAS numbers in stream compositions
+# (stored by the frontend) and translate them to COMPONENT_LIBRARY keys.
+
+CAS_LOOKUP: dict[str, str] = {
+    "71-43-2":   "benzene",
+    "108-88-3":  "toluene",
+    "64-17-5":   "ethanol",
+    "7732-18-5": "water",
+    "67-56-1":   "methanol",
+    "67-64-1":   "acetone",
+    "110-54-3":  "n_hexane",
+    "142-82-5":  "n_heptane",
+    "74-82-8":   "methane",
+    "74-84-0":   "ethane",
+    "74-98-6":   "propane",
+    "106-97-8":  "n_butane",
+    "75-28-5":   "isobutane",
+    "109-66-0":  "n_pentane",
+    "78-78-4":   "isopentane",
+    "110-82-7":  "cyclohexane",
+    "1333-74-0": "hydrogen",
+    "7727-37-9": "nitrogen",
+    "124-38-9":  "carbon_dioxide",
+    "7783-06-4": "hydrogen_sulfide",
+    "64-19-7":   "acetic_acid",
+    "67-66-3":   "chloroform",
+    "60-29-7":   "diethyl_ether",
+}
+
+
+def resolve_composition(composition: dict[str, float]) -> dict[str, float]:
+    """Translate any CAS-keyed composition entries to COMPONENT_LIBRARY keys.
+
+    Keys that are already component-library names pass through unchanged.
+    Unknown keys are preserved as-is (the solver will raise SimulationError
+    for truly unrecognised components).
+    """
+    resolved: dict[str, float] = {}
+    for key, frac in composition.items():
+        resolved[CAS_LOOKUP.get(key, key)] = frac
+    return resolved
+
+
 # ── Flash Drum ─────────────────────────────────────────────────────────────────
 
 @dataclass
