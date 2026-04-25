@@ -39,10 +39,11 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { fetchSimulation, runSimulation, saveFlowsheet } from '../api/client'
+import { fetchSimulation, runPinchAnalysis, runSimulation, saveFlowsheet } from '../api/client'
 import { UnitNode } from '../components/flowsheet/UnitNode'
 import { StreamEdge } from '../components/flowsheet/StreamEdge'
 import { ResultsPanel } from '../components/results/ResultsPanel'
+import { ControlStudio } from '../components/mpc/ControlStudio'
 import type {
   Connection,
   Edge,
@@ -51,6 +52,7 @@ import type {
 import type {
   FlowsheetEdge,
   FlowsheetNode,
+  MPCNodeSummary,
   SimulationResult,
   StreamState,
 } from '../types'
@@ -69,6 +71,7 @@ const PALETTE_ITEMS = [
   { type: 'heat_exchanger', label: 'Heat Exchanger', desc: 'Heater / cooler',             bar: 'bg-red-500'     },
   { type: 'flash_drum',     label: 'Flash Drum',     desc: 'Isothermal VLE flash',        bar: 'bg-sky-500'     },
   { type: 'pfr',            label: 'PFR',            desc: 'Plug-flow reactor',           bar: 'bg-lime-500'    },
+  { type: 'cstr',           label: 'CSTR',           desc: 'Stirred-tank reactor + MPC',  bar: 'bg-cyan-500'    },
   { type: 'pump',           label: 'Pump',           desc: 'Pressure increase',           bar: 'bg-orange-500'  },
   { type: 'product',        label: 'Product',        desc: 'Product stream sink',         bar: 'bg-emerald-500' },
 ]
@@ -77,7 +80,7 @@ const PALETTE_ITEMS = [
 
 const UNIT_INLETS: Record<string, number> = {
   feed: 0, product: 1, mixer: 2, splitter: 1,
-  heat_exchanger: 1, flash_drum: 1, pfr: 1, pump: 1,
+  heat_exchanger: 1, flash_drum: 1, pfr: 1, pump: 1, cstr: 1,
 }
 
 function inletHandleIds(count: number): string[] {
@@ -269,6 +272,27 @@ function UnitParams({
             <input type="number" step="1000" className={inputCls()}
               value={(data.delta_Hrxn_J_mol as number) ?? 0}
               onChange={e => u('delta_Hrxn_J_mol', +e.target.value)} />
+          </ParamField>
+        </>
+      )}
+
+      {/* ── CSTR ── */}
+      {type === 'cstr' && (
+        <>
+          <ParamField label="Volume (L)">
+            <input type="number" step="10" min="1" className={inputCls()}
+              value={(data.volume_L as number) ?? 100}
+              onChange={e => u('volume_L', +e.target.value)} />
+          </ParamField>
+          <ParamField label="Temperature (°C)">
+            <input type="number" step="1" className={inputCls()}
+              value={(data.temperature_C as number) ?? 76.85}
+              onChange={e => u('temperature_C', +e.target.value)} />
+          </ParamField>
+          <ParamField label="Coolant temp (K)">
+            <input type="number" step="1" min="200" max="400" className={inputCls()}
+              value={(data.coolant_temp_K as number) ?? 300}
+              onChange={e => u('coolant_temp_K', +e.target.value)} />
           </ParamField>
         </>
       )}
@@ -481,6 +505,7 @@ function ConfigPanel({
   onChange,
   onClose,
   onDelete,
+  onOpenControlStudio,
 }: {
   node:     Node
   edges:    Edge[]
@@ -488,6 +513,7 @@ function ConfigPanel({
   onChange: (id: string, data: D) => void
   onClose:  () => void
   onDelete: (id: string) => void
+  onOpenControlStudio?: () => void
 }) {
   const data = node.data as D
   const type = data.nodeType as string
@@ -523,6 +549,19 @@ function ConfigPanel({
           </button>
         </div>
       </div>
+
+      {/* Control Studio button — CSTR only, when callback is provided */}
+      {type === 'cstr' && onOpenControlStudio && (
+        <div className="px-4 py-2.5 border-b border-slate-700">
+          <button
+            onClick={onOpenControlStudio}
+            className="w-full py-1.5 rounded text-[11px] font-semibold
+                       bg-cyan-700 hover:bg-cyan-600 text-white transition-colors"
+          >
+            Open Control Studio
+          </button>
+        </div>
+      )}
 
       {/* Unit params section */}
       <div className="border-b border-slate-700">
@@ -562,6 +601,7 @@ function Canvas({ simId }: { simId: string }) {
   const [warnings, setWarnings]          = useState<string[]>([])
   const [saveStatus, setSaveStatus]      = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [resultsHeight, setResultsHeight] = useState(0)   // 0 = hidden
+  const [controlStudioNodeId, setControlStudioNodeId] = useState<string | null>(null)
 
   // Stable refs for auto-save (avoids stale closures)
   const nodesRef = useRef(nodes)
@@ -732,6 +772,7 @@ function Canvas({ simId }: { simId: string }) {
           ...(nodeType === 'heat_exchanger' && { mode: 'duty', duty_W: 0 }),
           ...(nodeType === 'splitter'       && { fractions: [0.5, 0.5] }),
           ...(nodeType === 'pfr'            && { reactant: 'benzene', product_comp: 'toluene', conversion: 0.5, delta_Hrxn_J_mol: 0 }),
+          ...(nodeType === 'cstr'           && { volume_L: 100, temperature_C: 76.85, coolant_temp_K: 300 }),
           ...(nodeType === 'pump'           && { delta_P_bar: 1, efficiency: 0.75 }),
         },
       }
@@ -786,6 +827,10 @@ function Canvas({ simId }: { simId: string }) {
                                'text-teal-500'
 
   const streams = (result?.streams ?? {}) as Record<string, StreamState>
+
+  const cstrSsPoint: MPCNodeSummary | null = controlStudioNodeId
+    ? ((result?.node_summaries?.[controlStudioNodeId] as MPCNodeSummary) ?? null)
+    : null
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -917,6 +962,7 @@ function Canvas({ simId }: { simId: string }) {
                 onPaneClick={() => setSel(null)}
                 onDrop={onDrop}
                 onDragOver={onDragOver}
+                deleteKeyCode="Delete"
                 fitView
                 defaultEdgeOptions={{ type: 'stream', data: {} }}
               >
@@ -928,6 +974,7 @@ function Canvas({ simId }: { simId: string }) {
                       feed: '#14b8a6', product: '#10b981', mixer: '#8b5cf6',
                       splitter: '#f59e0b', heat_exchanger: '#ef4444',
                       flash_drum: '#0ea5e9', pfr: '#84cc16', pump: '#f97316',
+                      cstr: '#06b6d4',
                     }
                     return colourMap[(n.data as D).nodeType as string] ?? '#94a3b8'
                   }}
@@ -936,8 +983,22 @@ function Canvas({ simId }: { simId: string }) {
               </ReactFlow>
             </div>
 
+            {/* Control Studio — full-height panel, replaces config panel when open */}
+            {controlStudioNodeId && (
+              <ControlStudio
+                simId={simId}
+                nodeId={controlStudioNodeId}
+                nodeLabel={
+                  (nodes.find(n => n.id === controlStudioNodeId)?.data as D | undefined)
+                    ?.label as string ?? controlStudioNodeId
+                }
+                ssOperatingPoint={cstrSsPoint}
+                onClose={() => setControlStudioNodeId(null)}
+              />
+            )}
+
             {/* Right config panel — inside the canvas row so it stays canvas-height */}
-            {sel && (
+            {sel && !controlStudioNodeId && (
               <ConfigPanel
                 node={sel}
                 edges={edges}
@@ -945,6 +1006,11 @@ function Canvas({ simId }: { simId: string }) {
                 onChange={updNode}
                 onClose={() => setSel(null)}
                 onDelete={deleteNode}
+                onOpenControlStudio={
+                  (sel.data as D).nodeType === 'cstr'
+                    ? () => { setControlStudioNodeId(sel.id); setSel(null) }
+                    : undefined
+                }
               />
             )}
           </div>
@@ -981,6 +1047,7 @@ function Canvas({ simId }: { simId: string }) {
               edges={edges}
               warnings={warnings}
               height={resultsHeight}
+              onRunPinch={runPinchAnalysis}
             />
           )}
         </div>

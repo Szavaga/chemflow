@@ -32,6 +32,24 @@ _EXTRA: dict[str, tuple[float, float, float, float]] = {
     "acetone":   (125.0,   74.9,   29_100.0,   791.0),
     "n_hexane":  (195.0,  143.1,   28_850.0,   659.0),
     "n_heptane": (224.0,  165.9,   31_770.0,   684.0),
+    # Light hydrocarbons / gases (properties at/near normal boiling point)
+    "methane":         ( 54.0,   35.7,    8_190.0,   422.0),
+    "ethane":          ( 68.5,   52.5,   14_720.0,   546.0),
+    "propane":         ( 96.2,   73.6,   15_700.0,   493.0),
+    "n_butane":        (140.9,   97.5,   22_390.0,   579.0),
+    "isobutane":       (130.5,   96.7,   21_300.0,   551.0),
+    "n_pentane":       (167.2,  120.2,   25_770.0,   626.0),
+    "isopentane":      (164.8,  118.9,   24_690.0,   620.0),
+    "cyclohexane":     (156.0,  106.3,   29_970.0,   779.0),
+    # Permanent gases
+    "hydrogen":        ( 29.1,   28.8,      904.0,    71.0),
+    "nitrogen":        ( 56.0,   29.1,    5_570.0,   809.0),
+    "carbon_dioxide":  ( 37.1,   37.1,   15_326.0,   770.0),
+    "hydrogen_sulfide":( 78.0,   34.2,   18_680.0,   993.0),
+    # Other common solvents / process chemicals
+    "acetic_acid":     (123.0,   66.5,   23_700.0,  1049.0),
+    "chloroform":      (116.0,   65.7,   29_240.0,  1489.0),
+    "diethyl_ether":   (172.0,  112.0,   26_520.0,   713.0),
 }
 
 # Fallback for any component not in _EXTRA (generic organic liquid-like values).

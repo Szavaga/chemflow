@@ -78,6 +78,66 @@ COMPONENT_LIBRARY: dict[str, ChemComponent] = {
         "n-Heptane", 100.2, 540.3, 27.40, 0.349,
         6.89585, 1264.370, 216.640,
     ),
+    "methane": ChemComponent(
+        "Methane", 16.04, 190.6, 46.1, 0.011,
+        6.61184, 389.930, 266.696,
+    ),
+    "ethane": ChemComponent(
+        "Ethane", 30.07, 305.3, 48.7, 0.099,
+        6.80896, 663.720, 256.681,
+    ),
+    "propane": ChemComponent(
+        "Propane", 44.10, 369.8, 42.5, 0.152,
+        6.82973, 813.200, 248.097,
+    ),
+    "n_butane": ChemComponent(
+        "n-Butane", 58.12, 425.1, 38.0, 0.200,
+        6.82485, 943.453, 239.711,
+    ),
+    "isobutane": ChemComponent(
+        "Isobutane", 58.12, 408.2, 36.5, 0.181,
+        6.78866, 882.800, 240.000,
+    ),
+    "n_pentane": ChemComponent(
+        "n-Pentane", 72.15, 469.7, 33.7, 0.251,
+        6.85221, 1064.630, 232.000,
+    ),
+    "isopentane": ChemComponent(
+        "Isopentane", 72.15, 460.4, 33.8, 0.227,
+        6.78967, 1020.012, 233.097,
+    ),
+    "cyclohexane": ChemComponent(
+        "Cyclohexane", 84.16, 553.6, 40.7, 0.212,
+        6.84498, 1203.526, 222.863,
+    ),
+    "hydrogen": ChemComponent(
+        "Hydrogen", 2.016, 33.2, 13.0, -0.216,
+        5.82800, 181.000, 265.700,
+    ),
+    "nitrogen": ChemComponent(
+        "Nitrogen", 28.01, 126.2, 34.0, 0.040,
+        6.49457, 255.680, 266.550,
+    ),
+    "carbon_dioxide": ChemComponent(
+        "Carbon Dioxide", 44.01, 304.1, 73.8, 0.225,
+        6.81228, 1301.679, 272.200,
+    ),
+    "hydrogen_sulfide": ChemComponent(
+        "Hydrogen Sulfide", 34.08, 373.2, 90.1, 0.090,
+        7.05267, 1012.490, 247.100,
+    ),
+    "acetic_acid": ChemComponent(
+        "Acetic Acid", 60.05, 592.7, 57.9, 0.467,
+        7.38782, 1533.313, 222.309,
+    ),
+    "chloroform": ChemComponent(
+        "Chloroform", 119.38, 536.4, 54.7, 0.218,
+        6.90328, 1163.000, 227.400,
+    ),
+    "diethyl_ether": ChemComponent(
+        "Diethyl Ether", 74.12, 466.7, 36.4, 0.281,
+        6.92032, 1064.070, 228.799,
+    ),
 }
 
 

@@ -45,6 +45,15 @@ class SimulationError(Exception):
     a convergence failure."""
 
 
+class ConvergenceError(SimulationError):
+    """Raised when a recycle loop fails to converge within the iteration limit."""
+
+    def __init__(self, message: str, *, iterations: int, residuals: list[float]) -> None:
+        super().__init__(message)
+        self.iterations = iterations
+        self.residuals = residuals
+
+
 # ── Stream ────────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -671,5 +680,124 @@ class Pump:
             "shaft_work_kW": W_shaft / 1000.0,
             "liquid_density_kg_m3": rho_liq,
             "warnings": warnings,
+        }
+        return [outlet], summary
+
+
+# ── CSTR ──────────────────────────────────────────────────────────────────────
+
+class CSTR:
+    """
+    Continuous Stirred Tank Reactor — steady-state solve via Arrhenius kinetics.
+
+    Steady-state material and energy balances:
+        0 = F/V * (CAf - CA) - k(T) * CA
+        0 = F/V * (Tf - T)  + (-dH)/(rho*Cp) * k(T) * CA - UA/(rho*Cp*V) * (T - Tc)
+
+    where k(T) = k0 * exp(-Ea/R / T).  Solved with SciPy fsolve.
+
+    The summary includes CA_ss, T_ss_K, F_ss_L_min and Tc_ss_K so that the
+    MPC Control Studio can seed its dynamic simulation from the steady-state
+    operating point.
+
+    Unit conversion
+    ---------------
+    ChemFlow streams carry flow in mol/s.  The CSTR model (from the MPC
+    sandbox) uses volumetric flow F in L/min.  We derive F_L_min from the
+    inlet stream as:
+        F_L_min = feed.flow [mol/s] * MW_mix [g/mol] / rho_liq [kg/m³]
+                  * 1e-3 [kg/g] * 1e3 [L/m³] * 60 [s/min]
+    """
+
+    # Physical defaults (GEKKO CSTR benchmark, matches MPC sandbox)
+    _Caf:   float = 1.0          # feed concentration, mol/L
+    _rho:   float = 1000.0       # density, g/L
+    _Cp:    float = 0.239        # heat capacity, J/(g·K)
+    _mdelH: float = 5.0e4        # heat of reaction, J/mol (exothermic → positive)
+    _UA:    float = 5.0e4 / 60.0 # heat transfer coefficient, J/(s·K)
+
+    def solve(
+        self,
+        inlets: list[Stream],
+        *,
+        volume_L: float = 100.0,
+        temperature_C: float = 76.85,        # 350 K initial guess
+        coolant_temp_K: float = 300.0,
+        pre_exponential: float = 7.2e10 / 60.0,  # k0, 1/s
+        activation_energy_J_mol: float = 72681.0,  # Ea = EoverR * R_GAS
+        outlet_name: str = "cstr_out",
+    ) -> tuple[list[Stream], dict[str, Any]]:
+        from scipy.optimize import fsolve
+
+        if len(inlets) != 1:
+            raise SimulationError(f"CSTR expects exactly 1 inlet, got {len(inlets)}")
+        if volume_L <= 0:
+            raise SimulationError(f"CSTR: volume_L must be positive, got {volume_L}")
+
+        feed = inlets[0]
+        T_K_init = temperature_C + 273.15
+        Tc_K     = coolant_temp_K
+        Tf_K     = feed.temperature + 273.15
+        k0       = pre_exponential
+        EoverR   = activation_energy_J_mol / R_GAS
+
+        # Derive volumetric flow in L/min from molar feed flow
+        MW_mix  = mixture_MW(feed.composition)            # g/mol
+        rho_liq = mixture_density_liquid(feed.composition)  # kg/m³
+        # mol/s → L/min: (mol/s * g/mol) / (kg/m³ * 1e-3 kg/g * 1e-3 m³/L) / 60 s/min
+        F_L_min = feed.flow * MW_mix / (rho_liq * 1e-3 * 1e-3) / 60.0
+
+        # Derived constants
+        mH_rho_Cp  = self._mdelH / (self._rho * self._Cp)   # K·L/mol
+        UA_rho_Cp_V = self._UA / (self._rho * self._Cp * volume_L)  # 1/s
+        q_over_V = F_L_min / 60.0 / volume_L               # volumetric throughput, 1/s
+
+        def _cstr_ss(z: list[float]) -> list[float]:
+            CA, T_r = z[0], z[1]
+            T_r = max(T_r, 200.0)
+            k   = k0 * np.exp(-EoverR / T_r)
+            r0  = q_over_V * (self._Caf - CA) - k * CA
+            r1  = q_over_V * (Tf_K - T_r) + mH_rho_Cp * k * CA \
+                  - UA_rho_Cp_V * (T_r - Tc_K)
+            return [r0, r1]
+
+        x0 = [self._Caf * 0.5, T_K_init]
+        try:
+            sol, info, ier, msg = fsolve(_cstr_ss, x0, full_output=True)
+        except Exception as exc:
+            raise SimulationError(f"CSTR fsolve failed: {exc}") from exc
+
+        CA_ss = float(np.clip(sol[0], 1e-6, self._Caf))
+        T_ss  = float(np.clip(sol[1], 200.0, 600.0))
+
+        # Check residual — if fsolve didn't converge, warn but don't abort
+        residual_norm = float(np.linalg.norm(_cstr_ss([CA_ss, T_ss])))
+        converged = residual_norm < 1e-6
+
+        k_ss = k0 * np.exp(-EoverR / max(T_ss, 200.0))
+        conversion = 1.0 - CA_ss / self._Caf if self._Caf > 0 else 0.0
+        tau_s = volume_L / max(F_L_min / 60.0, 1e-12)  # residence time, s
+
+        outlet = Stream(
+            outlet_name,
+            T_ss - 273.15,         # back to °C
+            feed.pressure,
+            feed.flow,
+            dict(feed.composition),
+            0.0,
+        )
+        summary: dict[str, Any] = {
+            # MPC seed values
+            "CA_ss":       CA_ss,
+            "T_ss_K":      T_ss,
+            "F_ss_L_min":  F_L_min,
+            "Tc_ss_K":     Tc_K,
+            # Diagnostics
+            "conversion":        conversion,
+            "residence_time_s":  tau_s,
+            "k_rxn":             k_ss,
+            "converged":         converged,
+            "residual_norm":     residual_norm,
+            "volume_L":          volume_L,
         }
         return [outlet], summary

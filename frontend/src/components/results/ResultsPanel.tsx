@@ -10,6 +10,7 @@
  *  5. Warnings panel  — solver warning messages
  */
 
+import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import {
   Bar,
@@ -22,7 +23,8 @@ import {
   YAxis,
 } from 'recharts'
 import type { Edge, Node } from '@xyflow/react'
-import type { SimulationResult, StreamState } from '../../types'
+import type { PinchRequest, PinchResult, SimulationResult, StreamState } from '../../types'
+import { PinchPanel } from './PinchPanel'
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
@@ -336,12 +338,45 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 // ── Public component ──────────────────────────────────────────────────────────
 
+// ── Tab bar ───────────────────────────────────────────────────────────────────
+
+type TabId = 'results' | 'energy_targets'
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'results',        label: 'Results' },
+  { id: 'energy_targets', label: 'Energy Targets' },
+]
+
+function TabBar({ active, onChange }: { active: TabId; onChange: (t: TabId) => void }) {
+  return (
+    <div className="flex gap-1">
+      {TABS.map(t => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={[
+            'px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-colors',
+            active === t.id
+              ? 'bg-white text-teal-700 border border-b-white border-slate-200 -mb-px z-10'
+              : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100',
+          ].join(' ')}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ── Public component ──────────────────────────────────────────────────────────
+
 export interface ResultsPanelProps {
-  result:   SimulationResult
-  nodes:    Node[]
-  edges:    Edge[]
-  warnings: string[]
-  height:   number          // controlled by draggable splitter
+  result:       SimulationResult
+  nodes:        Node[]
+  edges:        Edge[]
+  warnings:     string[]
+  height:       number          // controlled by draggable splitter
+  onRunPinch:   (simId: string, req: PinchRequest) => Promise<PinchResult>
 }
 
 export function ResultsPanel({
@@ -350,11 +385,14 @@ export function ResultsPanel({
   edges,
   warnings,
   height,
+  onRunPinch,
 }: ResultsPanelProps) {
-  const streams     = result.streams as Record<string, StreamState>
-  const eb          = result.energy_balance as Record<string, number>
-  const chartData   = buildChartData(nodes, edges, streams)
-  const runAt       = new Date(result.created_at).toLocaleTimeString()
+  const [activeTab, setActiveTab] = useState<TabId>('results')
+
+  const streams   = result.streams as Record<string, StreamState>
+  const eb        = result.energy_balance as Record<string, number>
+  const chartData = buildChartData(nodes, edges, streams)
+  const runAt     = new Date(result.created_at).toLocaleTimeString()
 
   return (
     <div
@@ -373,49 +411,62 @@ export function ResultsPanel({
               {warnings.length} warning{warnings.length > 1 ? 's' : ''}
             </span>
           )}
+          <TabBar active={activeTab} onChange={setActiveTab} />
         </div>
 
-        <button
-          onClick={() => exportToExcel(result, streams)}
-          className={[
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold',
-            'bg-emerald-600 hover:bg-emerald-700 text-white',
-            'transition-colors duration-150 shadow-sm',
-          ].join(' ')}
-        >
-          <span>⬇</span> Export Excel
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportToExcel(result, streams)}
+            className={[
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold',
+              'bg-emerald-600 hover:bg-emerald-700 text-white',
+              'transition-colors duration-150 shadow-sm',
+            ].join(' ')}
+          >
+            <span>⬇</span> Export Excel
+          </button>
+        </div>
       </div>
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        {/* Two-column layout for table + charts on wide screens */}
         <div className="p-5 space-y-6">
 
-          {/* ── Stream table ── */}
-          <section>
-            <SectionHeading>Stream Table</SectionHeading>
-            <StreamResultsTable streams={streams} />
-          </section>
+          {activeTab === 'results' && (
+            <>
+              {/* ── Stream table ── */}
+              <section>
+                <SectionHeading>Stream Table</SectionHeading>
+                <StreamResultsTable streams={streams} />
+              </section>
 
-          {/* ── Energy summary ── */}
-          <section>
-            <SectionHeading>Energy Balance</SectionHeading>
-            <EnergySummary energyBalance={eb} />
-          </section>
+              {/* ── Energy summary ── */}
+              <section>
+                <SectionHeading>Energy Balance</SectionHeading>
+                <EnergySummary energyBalance={eb} />
+              </section>
 
-          {/* ── Unit flow chart ── */}
-          <section>
-            <SectionHeading>Mass flow by unit operation (kmol/hr)</SectionHeading>
-            <UnitFlowChart data={chartData} />
-          </section>
+              {/* ── Unit flow chart ── */}
+              <section>
+                <SectionHeading>Mass flow by unit operation (kmol/hr)</SectionHeading>
+                <UnitFlowChart data={chartData} />
+              </section>
 
-          {/* ── Warnings ── */}
-          {warnings.length > 0 && (
-            <section>
-              <SectionHeading>Warnings</SectionHeading>
-              <WarningsPanel warnings={warnings} />
-            </section>
+              {/* ── Warnings ── */}
+              {warnings.length > 0 && (
+                <section>
+                  <SectionHeading>Warnings</SectionHeading>
+                  <WarningsPanel warnings={warnings} />
+                </section>
+              )}
+            </>
+          )}
+
+          {activeTab === 'energy_targets' && (
+            <PinchPanel
+              simId={result.simulation_id}
+              onRunPinch={onRunPinch}
+            />
           )}
 
         </div>

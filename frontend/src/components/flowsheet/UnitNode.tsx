@@ -127,6 +127,37 @@ function PumpIcon() {
   )
 }
 
+function CSTRIcon() {
+  return (
+    <svg {...iconProps}>
+      {/* Vertical tank with agitator shaft + cooling jacket lines */}
+      <rect x="5" y="4" width="14" height="16" rx="2" />
+      {/* Agitator shaft */}
+      <line x1="12" y1="4" x2="12" y2="14" />
+      {/* Agitator blades */}
+      <line x1="8"  y1="13" x2="16" y2="13" />
+      <line x1="8"  y1="15" x2="16" y2="15" />
+      {/* Cooling jacket wavy line */}
+      <path d="M5 8 C3 9 3 11 5 12 C3 13 3 15 5 16" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
+function RecycleIcon() {
+  return (
+    <svg {...iconProps}>
+      {/* Dashed circular arc with arrowhead — marks the tear stream cut point */}
+      <path
+        d="M 12 3 A 9 9 0 1 1 3.5 16"
+        strokeDasharray="4 2.5"
+        fill="none"
+      />
+      {/* Arrowhead at the open end of the arc */}
+      <polyline points="1,13 3.5,16.5 6.5,14" />
+    </svg>
+  )
+}
+
 // ── Node metadata ─────────────────────────────────────────────────────────────
 
 interface NodeMeta {
@@ -197,6 +228,20 @@ const META: Record<string, NodeMeta> = {
     inlets: 1,
     outlets: 1,
   },
+  cstr: {
+    Icon: CSTRIcon,
+    bar: 'bg-cyan-500',
+    icon: 'text-cyan-600',
+    inlets: 1,
+    outlets: 1,
+  },
+  recycle: {
+    Icon: RecycleIcon,
+    bar: 'bg-purple-400',
+    icon: 'text-purple-600',
+    inlets: 1,
+    outlets: 1,
+  },
 }
 
 const FALLBACK_META: NodeMeta = {
@@ -230,14 +275,20 @@ export function UnitNode({ data, selected }: NodeProps) {
 
   const typeLabel = (d.nodeType ?? '').replace(/_/g, ' ')
 
+  const isRecycle = d.nodeType === 'recycle'
+
   return (
     <div
       className={[
         'relative rounded-lg bg-white overflow-hidden select-none',
         'border-2 transition-shadow duration-150',
-        selected
-          ? 'border-teal-500 shadow-lg shadow-teal-200/60'
-          : 'border-slate-200 shadow-md',
+        isRecycle
+          ? selected
+            ? 'border-purple-500 shadow-lg shadow-purple-200/60 border-dashed'
+            : 'border-purple-300 shadow-md border-dashed'
+          : selected
+            ? 'border-teal-500 shadow-lg shadow-teal-200/60'
+            : 'border-slate-200 shadow-md',
       ].join(' ')}
       style={{ width: 168 }}
     >

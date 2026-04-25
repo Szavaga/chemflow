@@ -341,6 +341,20 @@ input:focus, select:focus {
 .color-swatch--active { border-color: var(--text); }
 .project-title-block h2 { font-size: 1rem; font-weight: 600; }
 .project-title-block .card-desc { margin-bottom: 0; }
+.project-delete-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  transition: background 0.1s, color 0.1s;
+}
+.project-delete-btn:hover { background: #fef2f2; color: var(--danger); }
+.project-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Simulation grid */
 .sim-grid {

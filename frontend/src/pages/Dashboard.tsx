@@ -12,11 +12,18 @@ const PALETTE = [
 
 // ── Per-project simulation list ───────────────────────────────────────────────
 
-function ProjectSection({ project }: { project: Project }) {
+function ProjectSection({
+  project,
+  onDelete,
+}: {
+  project: Project
+  onDelete: (id: string) => Promise<void>
+}) {
   const navigate = useNavigate()
   const [simName, setSimName] = useState('')
   const [creating, setCreating] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingProject, setDeletingProject] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [sims, setSims] = useState(project.simulations ?? [])
   const [color, setColor] = useState(project.color ?? '#6366f1')
@@ -47,6 +54,18 @@ function ProjectSection({ project }: { project: Project }) {
       setErr('Failed to delete simulation')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleDeleteProject = async () => {
+    if (!window.confirm(`Delete project "${project.name}" and all its simulations? This cannot be undone.`))
+      return
+    setDeletingProject(true)
+    try {
+      await onDelete(project.id)
+    } catch {
+      setErr('Failed to delete project')
+      setDeletingProject(false)
     }
   }
 
@@ -87,6 +106,14 @@ function ProjectSection({ project }: { project: Project }) {
           <h2>{project.name}</h2>
           {project.description && <p className="card-desc">{project.description}</p>}
         </div>
+        <button
+          className="project-delete-btn"
+          onClick={handleDeleteProject}
+          disabled={deletingProject}
+          title="Delete project"
+        >
+          {deletingProject ? '…' : '✕'}
+        </button>
       </div>
 
       {sims.length > 0 && (
@@ -128,7 +155,7 @@ function ProjectSection({ project }: { project: Project }) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const { projects, loading, error, add } = useProjects()
+  const { projects, loading, error, add, remove } = useProjects()
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -199,7 +226,7 @@ export default function Dashboard() {
       ) : (
         <div className="project-list">
           {projects.map(p => (
-            <ProjectSection key={p.id} project={p} />
+            <ProjectSection key={p.id} project={p} onDelete={remove} />
           ))}
         </div>
       )}

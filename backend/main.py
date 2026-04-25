@@ -18,6 +18,7 @@ from app.db import init_db
 from app.api import health, simulations
 from app.api import auth as auth_module
 from app.api.sims import router as sims_router
+from app.api.mpc import router as mpc_router
 
 logger = logging.getLogger(__name__)
 
@@ -115,3 +116,4 @@ app.include_router(health.router,          prefix="/api", tags=["health"])
 app.include_router(simulations.router,     prefix="/api", tags=["simulations"])
 app.include_router(auth_module.router,     prefix="/api", tags=["auth"])
 app.include_router(sims_router,            prefix="/api", tags=["simulations"])
+app.include_router(mpc_router,             prefix="/api", tags=["mpc"])

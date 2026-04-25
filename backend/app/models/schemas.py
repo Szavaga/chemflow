@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from typing import Literal
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.orm import SimulationStatus, UserPlan
@@ -233,15 +235,153 @@ class SimulationResultCreate(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class StructuredWarning(BaseModel):
+    """A single structured solver warning emitted by process_metrics."""
+    code:     str
+    severity: str = Field(description="'info' | 'warning' | 'error'")
+    message:  str
+    node_id:  str | None = None
+
+
+class ProcessMetrics(BaseModel):
+    """Aggregate process figures computed from the solver result."""
+    total_heat_duty_kW:    float
+    total_cooling_duty_kW: float
+    total_shaft_work_kW:   float
+    overall_conversion:    dict[str, float] = Field(default_factory=dict)
+    recycle_ratio:         dict[str, float] = Field(default_factory=dict)
+    pinch_temperature:     float | None = None
+    Q_H_min:               float | None = None
+    energy_efficiency_pct: float | None = None
+
+
+class StreamAnnotation(BaseModel):
+    """Role and phase classification for a single process stream."""
+    is_recycle:          bool
+    is_product:          bool
+    is_waste:            bool
+    phase:               str = Field(description="'liquid' | 'vapor' | 'mixed'")
+    distance_from_pinch: float | None = None
+
+
+class SolverDiagnostics(BaseModel):
+    """Timing, convergence, and structured warnings from the solver."""
+    solve_time_ms:          int
+    convergence_iterations: int
+    converged:              bool
+    tear_streams:           list[str]            = Field(default_factory=list)
+    residuals:              list[float]           = Field(default_factory=list)
+    warnings:               list[StructuredWarning] = Field(default_factory=list)
+
+
 class SimulationResultResponse(BaseModel):
-    id: str
-    simulation_id: str
-    streams: dict[str, Any]
+    id:             str
+    simulation_id:  str
+    streams:        dict[str, Any]
     energy_balance: dict[str, Any]
-    warnings: list[Any]
+    warnings:       list[Any]      # legacy string warnings — kept for backward compat
+
+    # Phase-2 enrichment (None on results produced before this schema version)
+    process_metrics:    ProcessMetrics | None    = None
+    stream_annotations: dict[str, StreamAnnotation] | None = None
+    solver_diagnostics: SolverDiagnostics | None = None
+    process_summary:    str | None               = None
+    # Per-node solver summaries — used to seed the MPC Control Studio
+    node_summaries:     dict[str, Any] | None    = None
+
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Pinch Analysis
+# ══════════════════════════════════════════════════════════════════════════════
+
+class StreamInput(BaseModel):
+    """One process stream supplied explicitly for pinch analysis."""
+    name: str = ""
+    supply_temp: float = Field(description="Supply temperature (°C)")
+    target_temp: float = Field(description="Target temperature (°C)")
+    cp: float = Field(gt=0, description="Heat-capacity flowrate ṁ·Cₚ (kW/K)")
+    stream_type: str = Field(
+        description="'hot' (being cooled) or 'cold' (being heated)",
+        pattern="^(hot|cold)$",
+    )
+
+
+class PinchRequest(BaseModel):
+    delta_T_min: float = Field(
+        default=10.0, gt=0,
+        description="Minimum approach temperature (K or °C)",
+    )
+    streams: list[StreamInput] | None = Field(
+        default=None,
+        description="Explicit stream list; if omitted, auto-extracted from the flowsheet",
+    )
+
+
+class TemperatureIntervalOut(BaseModel):
+    t_high: float
+    t_low: float
+    hcp_sum: float
+    ccp_sum: float
+    delta_h: float
+    cascade_in: float
+    cascade_out: float
+
+
+class PinchResultResponse(BaseModel):
+    pinch_temperature: float
+    q_h_min: float
+    q_c_min: float
+    delta_T_min: float
+    temperature_intervals: list[TemperatureIntervalOut]
+    hot_composite: list[dict[str, float]]
+    cold_composite: list[dict[str, float]]
+    above_pinch_streams: dict[str, list[dict[str, Any]]]
+    below_pinch_streams: dict[str, list[dict[str, Any]]]
+    current_hot_utility_kw: float | None = None
+    energy_saving_kw: float | None = None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MPC Control Studio
+# ══════════════════════════════════════════════════════════════════════════════
+
+class MPCStartRequest(BaseModel):
+    x0: list[float] | None = Field(None, min_length=2, max_length=2,
+                                   description="Initial state [CA mol/L, T K]")
+    u0: list[float] | None = Field(None, min_length=2, max_length=2,
+                                   description="Initial control [F L/min, Tc K]")
+    ca_sp:   float | None = Field(None, ge=0.02, le=0.98,
+                                  description="Concentration setpoint (mol/L)")
+    temp_sp: float | None = Field(None, ge=300.0, le=430.0,
+                                  description="Temperature setpoint (K)")
+    dt: float = Field(1.0, ge=0.1, le=10.0, description="Simulation timestep (s)")
+
+
+class MPCConfigPatch(BaseModel):
+    prediction_horizon: int   | None = Field(None, ge=5, le=80)
+    control_horizon:    int   | None = Field(None, ge=1, le=30)
+    Q00: float | None = Field(None, ge=0.1)
+    Q11: float | None = Field(None, ge=0.001)
+    R00: float | None = Field(None, ge=1e-5)
+    R11: float | None = Field(None, ge=1e-5)
+    controller_type: Literal["NONLINEAR", "LINEAR"] | None = None
+    noise_sigma: float | None = Field(None, ge=0.0, le=5.0)
+
+
+class MPCSessionInfo(BaseModel):
+    sim_id:    str
+    node_id:   str
+    running:   bool
+    time:      float
+    states:    list[float]
+    setpoints: list[float]
+    controller_type: str
+    estimator_type:  str
+    noise_sigma: float
 
 
 # ══════════════════════════════════════════════════════════════════════════════

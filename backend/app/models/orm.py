@@ -180,9 +180,28 @@ class SimulationResult(Base):
     Computed outputs for a completed Simulation.
     One-to-one with Simulation.
 
-    streams:        {name → {flow, T, P, vapor_fraction, composition: {…}}}
-    energy_balance: {heat_duty_kW, Q_in_kW, Q_out_kW, net_kW}
-    warnings:       list of human-readable solver/range warnings
+    Core solver outputs
+    -------------------
+    streams:        {edge_id → {flow, temperature, pressure, vapor_fraction, composition}}
+    energy_balance: {total_duty_kW, heating_kW, cooling_kW}
+    warnings:       list of human-readable solver warnings (strings)
+
+    Phase-2 enrichment (populated by process_metrics.compute_enriched_result)
+    --------------------------------------------------------------------------
+    process_metrics:    aggregate heat/work/conversion/recycle/pinch figures
+    stream_annotations: per-stream role + phase classification
+    solver_diagnostics: timing, iteration count, structured warning objects
+    process_summary:    auto-generated plain-English paragraph for AI prompts
+
+    Note: process_metrics … process_summary are nullable so that rows written
+    before this schema version remain valid.  Run the following migration on
+    any existing PostgreSQL database before deploying:
+
+        ALTER TABLE simulation_results
+            ADD COLUMN IF NOT EXISTS process_metrics     JSONB,
+            ADD COLUMN IF NOT EXISTS stream_annotations  JSONB,
+            ADD COLUMN IF NOT EXISTS solver_diagnostics  JSONB,
+            ADD COLUMN IF NOT EXISTS process_summary     TEXT;
     """
 
     __tablename__ = "simulation_results"
@@ -198,6 +217,14 @@ class SimulationResult(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
     )
+
+    # Phase-2 enrichment fields
+    process_metrics:    Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    stream_annotations: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    solver_diagnostics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    process_summary:    Mapped[str | None]  = mapped_column(Text, nullable=True)
+    # Per-node solver summaries — used to seed the MPC Control Studio
+    node_summaries:     Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     simulation: Mapped["Simulation"] = relationship("Simulation", back_populates="result")
 

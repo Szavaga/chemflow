@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   createProject,
   createSimulation,
+  deleteProject,
   deleteSimulation,
   fetchProjects,
 } from '../api/client'
@@ -32,7 +33,12 @@ export function useProjects() {
     return project
   }
 
-  return { projects, loading, error, refresh: load, add }
+  const remove = async (id: string): Promise<void> => {
+    await deleteProject(id)
+    setProjects(prev => prev.filter(p => p.id !== id))
+  }
+
+  return { projects, loading, error, refresh: load, add, remove }
 }
 
 export function useSimulations(projectId: string) {

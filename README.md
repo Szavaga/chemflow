@@ -1,13 +1,14 @@
 # ChemFlow
 
-A **browser-based steady-state process simulation platform** for chemical and pharma engineers. Build flowsheets visually, run the solver, and inspect stream conditions — all in the browser.
+A **browser-based steady-state process simulation platform** for chemical and pharma engineers. Build flowsheets visually, run the solver, inspect stream conditions — and for CSTR nodes, open an embedded **Control Studio** for real-time nonlinear MPC.
 
 ## Features
 
 - **Visual flowsheet editor** — drag-and-drop unit ops onto a canvas, draw stream connections
 - **Steady-state solver** — topological (Kahn's algorithm) propagation through the flowsheet
 - **Per-node configuration panel** — click any node to edit parameters and view inlet conditions
-- **Results panel** — stream table (T in K, kmol/hr), energy balance, unit-flow bar chart, Excel export
+- **Results panel** — stream table, energy balance, unit-flow bar chart, Excel export
+- **Embedded Control Studio** — real-time NMPC loop for CSTR nodes, seeded from the solved operating point (WebSocket, GEKKO/IPOPT)
 - **JWT authentication** — register / login; all flowsheets are per-user
 
 ## Unit operations
@@ -19,16 +20,29 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 | Splitter | Split fractions | Proportional split |
 | Heat Exchanger | Fixed duty (W) **or** outlet T (°C) | Enthalpy balance |
 | PFR | Reactant, product, conversion, ΔH_rxn | Stoichiometric conversion |
-| Flash Drum | T (°C), P (bar) | Rachford-Rice + Wilson activity coefficients (modified Raoult's law) |
+| Flash Drum | T (°C), P (bar) | Rachford-Rice + Wilson activity coefficients |
+| CSTR | Volume (L), temperature (°C), coolant T (K) | Arrhenius kinetics + `fsolve` steady-state balance |
 | Pump | ΔP (bar), efficiency | Shaft-work calculation |
 | Product | — | Sink / stream recorder |
+
+## Control Studio (MPC)
+
+Click **Open Control Studio** on any solved CSTR node to open the real-time control panel:
+
+- **Nonlinear MPC** (NMPC) via GEKKO/IPOPT (IMODE=6), with deviation-space linear MPC as fallback
+- **State estimation** — toggle between Discrete Kalman Filter (KF) and Moving Horizon Estimator (MHE, IMODE=5)
+- Live charts for CA, T, F, Tc — with dashed setpoint reference lines
+- Hot-swap Q/R tuning weights and prediction/control horizons without restarting
+- Runaway detection badge (Normal / High T / RUNAWAY)
+- Seeded automatically from the steady-state solve result (CA_ss, T_ss_K, F_ss_L_min, Tc_ss_K)
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 async, asyncpg |
-| Solver | NumPy, SciPy (Rachford-Rice, Wilson activity coefficients) |
+| Solver | NumPy, SciPy (Rachford-Rice, Wilson, fsolve) |
+| MPC | GEKKO ≥ 1.0.6, IPOPT (NMPC + MHE) |
 | Frontend | React 18, TypeScript, Vite |
 | Canvas | @xyflow/react (React Flow v12) |
 | Charts | Recharts |
@@ -78,7 +92,7 @@ python -m venv .venv
 .venv\Scripts\activate        # PowerShell / CMD
 # source .venv/bin/activate   # macOS / Linux / Git Bash
 
-# Install dependencies
+# Install dependencies (includes gekko for MPC)
 pip install -r requirements.txt
 
 # Start the dev server
@@ -100,7 +114,7 @@ npm run dev
 
 Frontend is available at **http://localhost:5173**
 
-> The frontend proxies `/api` to `http://localhost:8000` automatically — no extra config needed.
+> The frontend proxies `/api` (including WebSocket upgrades) to `http://localhost:8000` automatically — no extra config needed.
 
 ---
 
@@ -128,7 +142,7 @@ docker compose up --build
 ```bash
 cd backend
 pip install -r requirements.txt
-pytest                   # 228 tests, ~65 s
+pytest                   # ~65 s
 pytest -v --tb=short     # verbose output
 ```
 
@@ -143,44 +157,56 @@ chemflow/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── auth.py          # POST /auth/register, /auth/login
-│   │   │   ├── sims.py          # Project + Simulation + Flowsheet CRUD
-│   │   │   ├── health.py        # GET /api/health
-│   │   │   └── simulations.py   # Legacy quick-sim endpoints
+│   │   │   ├── auth.py              # POST /auth/register, /auth/login
+│   │   │   ├── sims.py              # Project + Simulation + Flowsheet CRUD
+│   │   │   ├── mpc.py               # MPC WebSocket + REST endpoints
+│   │   │   ├── health.py            # GET /api/health
+│   │   │   └── simulations.py       # Legacy quick-sim endpoints
 │   │   ├── core/
-│   │   │   ├── auth.py          # get_current_user dependency
-│   │   │   ├── config.py        # Settings (DATABASE_URL, SECRET_KEY, …)
+│   │   │   ├── auth.py              # get_current_user dependency
+│   │   │   ├── config.py            # Settings (DATABASE_URL, SECRET_KEY, …)
 │   │   │   ├── flowsheet_solver.py  # Topological steady-state solver
-│   │   │   ├── unit_ops.py      # Feed, Mixer, Splitter, HEX, PFR, Flash, Pump
-│   │   │   ├── activity.py      # Wilson activity coefficients + binary parameters
-│   │   │   ├── simulation.py    # Component library, Antoine VP, simulate_flash
-│   │   │   └── thermo.py        # Mixture enthalpy, Cp, density, MW
+│   │   │   ├── unit_ops.py          # Feed, Mixer, Splitter, HEX, PFR, Flash, Pump, CSTR
+│   │   │   ├── activity.py          # Wilson activity coefficients + binary parameters
+│   │   │   ├── simulation.py        # Component library, Antoine VP, simulate_flash
+│   │   │   ├── thermo.py            # Mixture enthalpy, Cp, density, MW
+│   │   │   └── mpc/
+│   │   │       ├── __init__.py
+│   │   │       ├── system_model.py  # CSTRModel: RK4, linearise, runaway checks
+│   │   │       ├── controller.py    # MPCController: NMPC (GEKKO) + linear fallback
+│   │   │       ├── kalman_filter.py # Discrete Kalman Filter (deviation space)
+│   │   │       ├── mhe_estimator.py # Moving Horizon Estimator (GEKKO IMODE=5)
+│   │   │       └── simulation_state.py  # SimulationState: observe, step, IAE, history
 │   │   └── models/
-│   │       ├── orm.py           # SQLAlchemy models (User, Project, Simulation, …)
-│   │       └── schemas.py       # Pydantic request / response schemas
+│   │       ├── orm.py               # SQLAlchemy models (User, Project, Simulation, …)
+│   │       └── schemas.py           # Pydantic request / response schemas
 │   ├── tests/
-│   │   ├── test_unit_ops.py     # Unit-op solver tests
-│   │   └── test_simulation_api.py  # API integration tests
+│   │   ├── test_unit_ops.py         # Unit-op solver tests
+│   │   └── test_simulation_api.py   # API integration tests
 │   ├── main.py
 │   └── requirements.txt
 ├── frontend/
 │   └── src/
 │       ├── api/
-│       │   └── client.ts        # Axios instance + all API calls
+│       │   └── client.ts            # Axios instance + all API calls
 │       ├── components/
 │       │   ├── flowsheet/
 │       │   │   ├── UnitNode.tsx     # Custom React Flow node (SVG icons + handles)
 │       │   │   └── StreamEdge.tsx   # Custom edge with hover stream tooltip
+│       │   ├── mpc/
+│       │   │   └── ControlStudio.tsx  # Real-time MPC panel (charts + tuning controls)
 │       │   └── results/
 │       │       └── ResultsPanel.tsx # Stream table, energy cards, Recharts chart, Excel export
 │       ├── context/
-│       │   └── AuthContext.tsx  # JWT auth state + login/logout
+│       │   └── AuthContext.tsx      # JWT auth state + login/logout
+│       ├── hooks/
+│       │   └── useControlStudio.ts  # WebSocket hook: history, setpoints, MPC config, estimator
 │       ├── pages/
-│       │   ├── LoginPage.tsx    # Sign in / create account
-│       │   ├── Dashboard.tsx    # Project list + new simulation form
-│       │   └── FlowsheetPage.tsx  # Main canvas + config panel + results panel
+│       │   ├── LoginPage.tsx        # Sign in / create account
+│       │   ├── Dashboard.tsx        # Project list + new simulation form
+│       │   └── FlowsheetPage.tsx    # Main canvas + config panel + results panel
 │       └── types/
-│           └── index.ts         # All TypeScript interfaces
+│           └── index.ts             # All TypeScript interfaces
 ├── docker-compose.yml
 └── README.md
 ```
@@ -208,6 +234,17 @@ chemflow/
 | POST | `/simulations/{id}/run` | Run solver, persist result |
 | GET | `/simulations/{id}/results` | List results |
 | DELETE | `/simulations/{id}` | Delete simulation (cascades) |
+
+### MPC Control Studio (require `Authorization: Bearer <token>`)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/simulations/{id}/mpc/{node_id}/start` | Create / reset MPC session, seed from SS |
+| POST | `/simulations/{id}/mpc/{node_id}/stop` | Halt control loop |
+| GET | `/simulations/{id}/mpc/{node_id}/config` | Current MPC configuration |
+| POST | `/simulations/{id}/mpc/{node_id}/config` | Hot-swap Q/R weights and horizons |
+| DELETE | `/simulations/{id}/mpc/{node_id}` | Tear down session |
+| WS | `/simulations/{id}/mpc/{node_id}/ws?token=<jwt>` | Real-time control loop |
 
 ### Legacy quick-sim (no auth required)
 
@@ -237,20 +274,13 @@ All variables can be set in `backend/.env` or as environment variables.
 
 ## Component library
 
-Pre-loaded thermodynamic properties (Tc, Pc, ω, Antoine constants) for:
-benzene, toluene, ethanol, water, methanol, acetone, n-hexane, n-heptane.
+Pre-loaded thermodynamic properties (Tc, Pc, ω, Antoine constants, Cp, ΔHvap, ρ) for:
+
+benzene, toluene, ethanol, water, methanol, acetone, n-hexane, n-heptane, methane, ethane, propane, n-butane, isobutane, n-pentane, isopentane, cyclohexane, hydrogen, nitrogen, carbon dioxide, hydrogen sulfide, acetic acid, chloroform, diethyl ether.
 
 ### Activity coefficient model
 
-The flash drum uses the **Wilson equation** (modified Raoult's law: K_i = γ_i · VP_i / P) with successive substitution to converge liquid-phase compositions. Binary Wilson parameters (Λ_ij) are pre-loaded for:
-
-| Pair | Notes |
-|---|---|
-| ethanol / water | Reproduces ~20–25 % vapour at 80 °C, 1 bar, 50/50 feed |
-| methanol / water | Similar hydrogen-bonding behaviour |
-| acetone / water | Positive deviations; no azeotrope |
-
-Component pairs without listed parameters default to Λ_ij = 1 (ideal liquid, pure Raoult's law). Nearly-ideal pairs such as benzene/toluene and n-hexane/n-heptane are accurate without correction.
+The flash drum uses the **Wilson equation** (modified Raoult's law: K_i = γ_i · VP_i / P) with successive substitution to converge liquid-phase compositions. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water, methanol/water, and acetone/water. All other pairs default to Λ_ij = 1 (ideal liquid, pure Raoult's law).
 
 ---
 

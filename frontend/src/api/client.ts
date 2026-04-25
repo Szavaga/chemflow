@@ -6,6 +6,8 @@ import type {
   FlowsheetEdge,
   FlowsheetNode,
   HEXResult,
+  PinchRequest,
+  PinchResult,
   Project,
   Simulation,
   SimulationDetail,
@@ -46,6 +48,9 @@ export const createProject = (data: { name: string; description?: string }): Pro
 export const updateProject = (id: string, data: { name?: string; description?: string; color?: string }): Promise<Project> =>
   api.patch<Project>(`/my/projects/${id}`, data).then(r => r.data)
 
+export const deleteProject = (id: string): Promise<void> =>
+  api.delete(`/my/projects/${id}`).then(() => undefined)
+
 // ── Simulations ───────────────────────────────────────────────────────────────
 
 export const fetchSimulation = (id: string): Promise<SimulationDetail> =>
@@ -71,6 +76,9 @@ export const runSimulation = (simId: string): Promise<SimulationResult> =>
 
 export const fetchResults = (simId: string): Promise<SimulationResult[]> =>
   api.get<SimulationResult[]>(`/simulations/${simId}/results`).then(r => r.data)
+
+export const runPinchAnalysis = (simId: string, req: PinchRequest): Promise<PinchResult> =>
+  api.post<PinchResult>(`/simulations/${simId}/pinch`, req).then(r => r.data)
 
 // ── Legacy quick simulations (stateless) ─────────────────────────────────────
 

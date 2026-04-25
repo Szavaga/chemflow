@@ -680,7 +680,9 @@ class TestFlowsheetSolver:
 
     # ── error handling ────────────────────────────────────────────────────────
 
-    def test_cycle_detection_raises(self):
+    def test_cycle_handled_via_recycle_solver(self):
+        # Cycles are no longer rejected; the recycle solver handles them.
+        # A two-mixer loop with no feed trivially converges (passthrough).
         nodes = [
             self._node("N1", "mixer"),
             self._node("N2", "mixer"),
@@ -689,8 +691,9 @@ class TestFlowsheetSolver:
             self._edge("E1", "N1", "N2"),
             self._edge("E2", "N2", "N1"),   # cycle
         ]
-        with pytest.raises(SimulationError, match="cycle"):
-            FlowsheetSolver(nodes, edges).solve()
+        result = FlowsheetSolver(nodes, edges).solve()
+        assert result["convergence_info"]["converged"] is True
+        assert len(result["convergence_info"]["tear_streams"]) == 1
 
     def test_feed_missing_composition_captured_as_warning(self):
         nodes = [

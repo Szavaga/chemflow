@@ -143,11 +143,138 @@ export interface EnergyBalance {
   [key: string]: number   // forward-compat index signature
 }
 
+export interface ConvergenceInfo {
+  converged: boolean
+  iterations: number
+  tear_streams: string[]
+  residuals: number[]
+}
+
 export interface SimulationResult {
   id: string
   simulation_id: string
   streams: Record<string, StreamState>
   energy_balance: EnergyBalance
   warnings: string[]
+  convergence_info?: ConvergenceInfo
+  process_metrics?: ProcessMetrics
+  node_summaries?: Record<string, unknown>
   created_at: string
+}
+
+export interface ProcessMetrics {
+  total_heat_duty_kW: number
+  total_cooling_duty_kW: number
+  total_shaft_work_kW: number
+  overall_conversion: Record<string, number>
+  recycle_ratio: Record<string, number>
+  pinch_temperature: number | null
+  Q_H_min: number | null
+  energy_efficiency_pct: number | null
+}
+
+// ── Pinch Analysis ────────────────────────────────────────────────────────────
+
+export interface StreamInput {
+  name?: string
+  supply_temp: number
+  target_temp: number
+  cp: number
+  stream_type: 'hot' | 'cold'
+}
+
+export interface PinchRequest {
+  delta_T_min?: number
+  streams?: StreamInput[]
+}
+
+export interface TemperatureInterval {
+  t_high: number
+  t_low: number
+  hcp_sum: number
+  ccp_sum: number
+  delta_h: number
+  cascade_in: number
+  cascade_out: number
+}
+
+export interface CompositeCurvePoint {
+  T: number
+  H: number
+}
+
+export interface PinchStreamEntry {
+  name: string
+  supply_temp: number
+  target_temp: number
+  cp: number
+}
+
+export interface PinchResult {
+  pinch_temperature: number
+  q_h_min: number
+  q_c_min: number
+  delta_T_min: number
+  temperature_intervals: TemperatureInterval[]
+  hot_composite: CompositeCurvePoint[]
+  cold_composite: CompositeCurvePoint[]
+  above_pinch_streams: { hot: PinchStreamEntry[]; cold: PinchStreamEntry[] }
+  below_pinch_streams: { hot: PinchStreamEntry[]; cold: PinchStreamEntry[] }
+  current_hot_utility_kw: number | null
+  energy_saving_kw: number | null
+}
+
+// ── MPC Control Studio ────────────────────────────────────────────────────────
+
+export interface MPCNodeSummary {
+  CA_ss:       number   // mol/L
+  T_ss_K:      number   // K
+  F_ss_L_min:  number   // L/min
+  Tc_ss_K:     number   // K
+  conversion:  number
+}
+
+export interface MPCStateSnapshot {
+  time:                 number
+  states:               [number, number]
+  states_true:          [number, number]
+  states_raw:           [number, number]
+  control:              [number, number]
+  setpoints:            [number, number]
+  approaching_runaway:  boolean
+  is_runaway:           boolean
+  mpc_success:          boolean
+  estimator_type:       'KF' | 'MHE'
+  mhe_success:          boolean
+  kalman_gain:          [number, number]
+  iae_ca:               number
+  iae_temp:             number
+}
+
+export interface PredTrajectory {
+  time: number[]
+  CA:   number[]
+  T:    number[]
+  u1:   number[]
+  u2:   number[]
+}
+
+export interface HistoryPoint {
+  time: number
+  CA:   number
+  T:    number
+  F:    number
+  Tc:   number
+  CA_sp: number
+  T_sp:  number
+}
+
+export interface MPCConfig {
+  prediction_horizon: number
+  control_horizon:    number
+  Q00: number
+  Q11: number
+  R00: number
+  R11: number
+  controller_type: 'NONLINEAR' | 'LINEAR'
 }
