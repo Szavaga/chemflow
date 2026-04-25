@@ -777,6 +777,7 @@ class FlowsheetSolver:
                     float(data["pressure_bar"])
                     if data.get("pressure_bar") is not None else None
                 ),
+                property_package=str(data.get("property_package", "ideal")),
                 liquid_name=f"{node_id}_liquid",
                 vapor_name=f"{node_id}_vapor",
             )

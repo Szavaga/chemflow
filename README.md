@@ -21,7 +21,7 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 | Splitter | Split fractions | Proportional split |
 | Heat Exchanger | Fixed duty (W) **or** outlet T (°C) | Enthalpy balance |
 | PFR | Reactant, product, conversion, ΔH_rxn | Stoichiometric conversion |
-| Flash Drum | T (°C), P (bar) | Rachford-Rice + Wilson activity coefficients |
+| Flash Drum | T (°C), P (bar), property package | Rachford-Rice + Wilson activity coefficients **or** Peng-Robinson EoS |
 | CSTR | Volume (L), temperature (°C), coolant T (K) | Arrhenius kinetics + `fsolve` steady-state balance |
 | Pump | ΔP (bar), efficiency | Shaft-work calculation |
 | Product | — | Sink / stream recorder |
@@ -58,9 +58,24 @@ water, ethanol, methanol, acetone, benzene, toluene, ethylene, propylene, n-buta
 
 Global components are **read-only**. Engineers can add project-scoped **custom components** (name, CAS, MW, Tc, Pc, ω, optional Antoine coefficients) through the **Component Manager** modal in the Feed node config panel. Custom components are visible only to the owning project.
 
-### Activity coefficient model
+### Thermodynamic models
 
-The flash drum uses the **Wilson equation** (modified Raoult's law: K_i = γ_i · VP_i / P) with successive substitution. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water, methanol/water, and acetone/water. All other pairs default to Λ_ij = 1 (ideal, pure Raoult's law).
+The Flash Drum node exposes a **Property package** dropdown with two options:
+
+**Ideal (Raoult's Law)** *(default)*  
+K_i = γ_i · VP_i(T) / P using the Wilson activity coefficient model. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water, methanol/water, and acetone/water. All other pairs default to Λ_ij = 1 (Raoult's law). Successive substitution converges on max relative K-change < 1 × 10⁻⁶.
+
+**Peng-Robinson EoS**  
+Full cubic equation of state VLE. K-values are initialised from the Wilson K-value correlation (K_i = Pc_i/P · exp(5.373(1+ω_i)(1−Tc_i/T))) and then iterated via fugacity coefficients:
+
+    K_i = exp(ln φ_i^L − ln φ_i^V)
+
+- Soave alpha function with κ = 0.37464 + 1.54226ω − 0.26992ω²  
+- Van der Waals one-fluid mixing rules; binary interaction parameters kij default to zero (set per-simulation via the API if needed)  
+- Cubic Z-root solver with imaginary-root filtering and Z > B physical bound  
+- Exact PR fugacity coefficient expression (no simplifications)  
+- Converges on max absolute K-change < 1 × 10⁻⁸  
+- Requires Tc, Pc, and ω for all feed components; a warning badge is shown in the config panel if Peng-Robinson is selected
 
 ## Control Studio (MPC)
 
@@ -79,7 +94,7 @@ Click **Open Control Studio** on any solved CSTR node to open the real-time cont
 |---|---|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 async, asyncpg |
 | Solver | NumPy, SciPy (Rachford-Rice, Wilson, fsolve), NetworkX (SCC / condensation) |
-| Thermodynamics | `chemicals` ≥ 1.1.0 (Tc, Pc, ω, Antoine data for 50 components) |
+| Thermodynamics | `chemicals` ≥ 1.1.0 (Tc, Pc, ω, Antoine data); Peng-Robinson EoS (pure NumPy) |
 | MPC | GEKKO ≥ 1.0.6, IPOPT (NMPC + MHE) |
 | Frontend | React 18, TypeScript, Vite |
 | Canvas | @xyflow/react (React Flow v12) |
@@ -219,7 +234,7 @@ chemflow/
 │   │   │   ├── exceptions.py        # ThermodynamicRangeError
 │   │   │   ├── activity.py          # Wilson activity coefficients + binary parameters
 │   │   │   ├── simulation.py        # COMPONENT_LIBRARY, CAS_LOOKUP, resolve_composition
-│   │   │   ├── thermo.py            # Mixture enthalpy, Cp, density, MW
+│   │   │   ├── thermo.py            # Mixture enthalpy, Cp, density, MW; PengRobinson EoS
 │   │   │   ├── pinch.py             # Pinch analysis (composite curves, Q_H_min, Q_C_min)
 │   │   │   ├── process_metrics.py   # Overall conversion, energy efficiency, recycle ratio
 │   │   │   ├── context_builder.py   # Builds result context for API responses

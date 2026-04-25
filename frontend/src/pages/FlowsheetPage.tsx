@@ -324,6 +324,19 @@ function UnitParams({
               value={(data.pressure_bar as number) ?? 1}
               onChange={e => u('pressure_bar', +e.target.value)} />
           </ParamField>
+          <ParamField label="Property package">
+            <select className={selectCls()}
+              value={(data.property_package as string) ?? 'ideal'}
+              onChange={e => u('property_package', e.target.value)}>
+              <option value="ideal">Ideal (Raoult's Law)</option>
+              <option value="peng_robinson">Peng-Robinson</option>
+            </select>
+          </ParamField>
+          {(data.property_package as string) === 'peng_robinson' && (
+            <p className="text-[10px] text-amber-400 mt-1">
+              Requires Tc, Pc, ω for all components.
+            </p>
+          )}
           <p className="text-[10px] text-slate-500 mt-1">
             Outlet 0 = vapour (top) · Outlet 1 = liquid (bottom)
           </p>
@@ -875,7 +888,7 @@ function Canvas({ simId }: { simId: string }) {
           composition: {},
           inlet_data: {},
           ...(nodeType === 'feed'           && { flow_mol_s: 1, temperature_C: 25, pressure_bar: 1 }),
-          ...(nodeType === 'flash_drum'     && { temperature_C: 80, pressure_bar: 1 }),
+          ...(nodeType === 'flash_drum'     && { temperature_C: 80, pressure_bar: 1, property_package: 'ideal' }),
           ...(nodeType === 'heat_exchanger' && { mode: 'duty', duty_W: 0 }),
           ...(nodeType === 'splitter'       && { fractions: [0.5, 0.5] }),
           ...(nodeType === 'pfr'            && { reactant: 'benzene', product_comp: 'toluene', conversion: 0.5, delta_Hrxn_J_mol: 0 }),

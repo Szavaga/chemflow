@@ -27,6 +27,9 @@ from scipy.optimize import brentq
 from app.core.activity import wilson_gammas
 from app.core.simulation import COMPONENT_LIBRARY
 from app.core.thermo import (
+    MissingPropertyError,
+    PengRobinson,
+    ThermodynamicError,
     _extra,
     mixture_Cp_ig,
     mixture_Cp_liquid,
@@ -473,25 +476,27 @@ class PFR:
 
 class Flash:
     """
-    Isothermal two-phase VLE split using modified Raoult's law with Wilson
-    activity coefficients for non-ideal liquid phases.
+    Isothermal two-phase VLE split.
 
-        K_i = γ_i(x) · VP_i(T) / P
+    property_package="ideal" (default)
+        K_i = γ_i(x) · VP_i(T) / P  using Wilson activity coefficients.
+        Converges when max relative K-change < 1e-6.
 
-    Wilson γ_i are iterated via successive substitution until K-values
-    converge (max relative change < 1e-6, up to 50 outer iterations).
-    Component pairs without Wilson parameters default to γ_i = 1 (ideal,
-    Raoult's law).
+    property_package="peng_robinson"
+        K-values initialised from the Wilson correlation
+            K_i = (Pc_i/P) · exp(5.373·(1+ω_i)·(1−Tc_i/T))
+        then iterated via PR fugacity coefficients:
+            K_i = exp(ln φ_i^L − ln φ_i^V)
+        Converges when max absolute K-change < 1e-8.
 
-    All components must be present in COMPONENT_LIBRARY (Antoine parameters
-    required for vapour pressure).
-
+    All components must be present in COMPONENT_LIBRARY.
     Produces two outlet streams: ``liquid`` (index 0) and ``vapor`` (index 1).
     Zero-flow streams are returned for trivial (all-liquid or all-vapour) cases.
     """
 
     _MAX_SS_ITER = 50
     _SS_TOL      = 1e-6
+    _PR_TOL      = 1e-8
 
     def solve(
         self,
@@ -499,6 +504,7 @@ class Flash:
         *,
         temperature_C: float | None = None,
         pressure_bar: float | None = None,
+        property_package: str = "ideal",
         liquid_name: str = "flash_liquid",
         vapor_name: str  = "flash_vapor",
     ) -> tuple[list[Stream], dict[str, Any]]:
@@ -506,8 +512,8 @@ class Flash:
             raise SimulationError(f"Flash expects exactly 1 inlet, got {len(inlets)}")
 
         feed = inlets[0]
-        T = temperature_C if temperature_C is not None else feed.temperature
-        P = pressure_bar  if pressure_bar  is not None else feed.pressure
+        T_C = temperature_C if temperature_C is not None else feed.temperature
+        P   = pressure_bar  if pressure_bar  is not None else feed.pressure
 
         unknown = [c for c in feed.composition if c not in COMPONENT_LIBRARY]
         if unknown:
@@ -518,28 +524,45 @@ class Flash:
 
         comps = list(feed.composition)
         z     = np.array([feed.composition[c] for c in comps])
-        VP    = np.array([COMPONENT_LIBRARY[c].vapor_pressure(T) for c in comps])
 
-        # ── Successive-substitution outer loop ────────────────────────────────
-        # Initialise K from Wilson γ evaluated at feed composition (x = z).
-        x      = z.copy()
-        gamma  = np.array([wilson_gammas(dict(zip(comps, x.tolist())))[c] for c in comps])
-        K      = gamma * VP / P
+        # ── Initialise K-values ───────────────────────────────────────────────
+        gamma = np.ones(len(comps))   # activity coefficients (ideal default)
 
-        psi        = 0.5        # will be overwritten
-        converged  = False
-        msg        = "Maximum iterations reached — K-values may not be converged"
-        ss_iters   = 0
+        if property_package == "peng_robinson":
+            try:
+                pr = PengRobinson(comps)
+            except MissingPropertyError as exc:
+                raise SimulationError(str(exc)) from exc
+            T_K  = T_C + 273.15
+            P_Pa = P * 1e5
+            # Wilson correlation for initial K estimate
+            K = (pr.Pc / 1e5) / P * np.exp(
+                5.373 * (1.0 + pr.omega) * (1.0 - pr.Tc / T_K)
+            )
+        else:
+            VP    = np.array([COMPONENT_LIBRARY[c].vapor_pressure(T_C) for c in comps])
+            x     = z.copy()
+            gamma = np.array(
+                [wilson_gammas(dict(zip(comps, x.tolist())))[c] for c in comps]
+            )
+            K = gamma * VP / P
+
+        x         = z.copy()
+        psi       = 0.5
+        converged = False
+        msg       = "Maximum iterations reached — K-values may not be converged"
+        ss_iters  = 0
 
         for ss_iter in range(self._MAX_SS_ITER):
             ss_iters = ss_iter + 1
 
             # ── trivial checks ────────────────────────────────────────────────
             if np.sum(z * K) <= 1.0:
-                liq = Stream(liquid_name, T, P, feed.flow, dict(feed.composition), 0.0)
-                vap = Stream(vapor_name,  T, P, 0.0,       dict(feed.composition), 1.0)
+                liq = Stream(liquid_name, T_C, P, feed.flow, dict(feed.composition), 0.0)
+                vap = Stream(vapor_name,  T_C, P, 0.0,       dict(feed.composition), 1.0)
                 return [liq, vap], {
                     "vapor_fraction": 0.0,
+                    "property_package": property_package,
                     "message": "Sub-cooled liquid — below bubble point",
                     "K_values": dict(zip(comps, K.tolist())),
                     "activity_coefficients": dict(zip(comps, gamma.tolist())),
@@ -547,10 +570,11 @@ class Flash:
                 }
 
             if np.sum(z / K) <= 1.0:
-                liq = Stream(liquid_name, T, P, 0.0,       dict(feed.composition), 0.0)
-                vap = Stream(vapor_name,  T, P, feed.flow, dict(feed.composition), 1.0)
+                liq = Stream(liquid_name, T_C, P, 0.0,       dict(feed.composition), 0.0)
+                vap = Stream(vapor_name,  T_C, P, feed.flow, dict(feed.composition), 1.0)
                 return [liq, vap], {
                     "vapor_fraction": 1.0,
+                    "property_package": property_package,
                     "message": "Superheated vapour — above dew point",
                     "K_values": dict(zip(comps, K.tolist())),
                     "activity_coefficients": dict(zip(comps, gamma.tolist())),
@@ -572,33 +596,52 @@ class Flash:
                 msg       = f"Rachford-Rice failed: {exc}"
                 break
 
-            # ── Update liquid composition and activity coefficients ───────────
-            x_new   = z / (1.0 + psi * (K - 1.0));  x_new /= x_new.sum()
-            gamma_new = np.array(
-                [wilson_gammas(dict(zip(comps, x_new.tolist())))[c] for c in comps]
-            )
-            K_new = gamma_new * VP / P
+            # ── Update liquid composition and K-values ────────────────────────
+            x_new = z / (1.0 + psi * (K - 1.0))
+            x_new /= x_new.sum()
 
-            # ── Convergence check ─────────────────────────────────────────────
-            rel_change = np.max(np.abs(K_new - K) / np.maximum(K, 1e-10))
-            x, gamma, K = x_new, gamma_new, K_new
+            if property_package == "peng_robinson":
+                y_cur = K * x_new
+                y_cur_sum = y_cur.sum()
+                if y_cur_sum > 1e-15:
+                    y_cur /= y_cur_sum
+                try:
+                    ln_phi_L = pr.fugacity_coefficients(T_K, P_Pa, x_new, "liquid")
+                    ln_phi_V = pr.fugacity_coefficients(T_K, P_Pa, y_cur, "vapor")
+                except (ThermodynamicError, ValueError) as exc:
+                    raise SimulationError(f"PR EoS failed: {exc}") from exc
+                K_new      = np.exp(ln_phi_L - ln_phi_V)
+                rel_change = float(np.max(np.abs(K_new - K)))
+                tol        = self._PR_TOL
+            else:
+                gamma_new = np.array(
+                    [wilson_gammas(dict(zip(comps, x_new.tolist())))[c] for c in comps]
+                )
+                K_new      = gamma_new * VP / P
+                rel_change = float(np.max(np.abs(K_new - K) / np.maximum(K, 1e-10)))
+                tol        = self._SS_TOL
+                gamma      = gamma_new
 
-            if rel_change < self._SS_TOL:
+            x, K = x_new, K_new
+
+            if rel_change < tol:
                 converged = True
                 msg       = f"Converged — two-phase equilibrium ({ss_iters} iterations)"
                 break
 
         # ── Build output streams ──────────────────────────────────────────────
-        y = K * x;  y /= y.sum()
+        y = K * x
+        y /= y.sum()
 
         x_dict = dict(zip(comps, x.tolist()))
         y_dict = dict(zip(comps, y.tolist()))
 
-        liq = Stream(liquid_name, T, P, float(feed.flow * (1.0 - psi)), x_dict, 0.0)
-        vap = Stream(vapor_name,  T, P, float(feed.flow * psi),          y_dict, 1.0)
+        liq = Stream(liquid_name, T_C, P, float(feed.flow * (1.0 - psi)), x_dict, 0.0)
+        vap = Stream(vapor_name,  T_C, P, float(feed.flow * psi),          y_dict, 1.0)
         summary: dict[str, Any] = {
             "vapor_fraction": float(psi),
             "converged": converged,
+            "property_package": property_package,
             "message": msg,
             "K_values": dict(zip(comps, K.tolist())),
             "activity_coefficients": dict(zip(comps, gamma.tolist())),

@@ -10,7 +10,19 @@ TODO: Replace activity coefficients with NRTL/UNIQUAC for non-ideal liquid
 
 from __future__ import annotations
 
+import numpy as np
+
 from app.core.simulation import COMPONENT_LIBRARY
+
+
+# ── Thermodynamic exception types ─────────────────────────────────────────────
+
+class ThermodynamicError(ValueError):
+    """Raised when a thermodynamic calculation cannot proceed (e.g. no valid Z root)."""
+
+
+class MissingPropertyError(ValueError):
+    """Raised when a required pure-component property is absent from the database."""
 
 # ---------------------------------------------------------------------------
 # Extended pure-component data not stored in ChemComponent (Antoine only).
@@ -143,3 +155,154 @@ def mixture_density_liquid(composition: dict[str, float]) -> float:
         return 800.0   # safety fallback
 
     return (MW_mix * 1e-3) / V_mix        # kg/m³
+
+
+# ── Peng-Robinson EoS ─────────────────────────────────────────────────────────
+
+class PengRobinson:
+    """Peng-Robinson equation of state for mixture VLE calculations.
+
+    All thermodynamic methods use SI units internally:
+        T  — Kelvin
+        P  — Pascal
+        a  — J²·s²/mol²  (Pa·m⁶/mol²)
+        b  — m³/mol
+
+    Parameters are loaded from COMPONENT_LIBRARY (Tc, Pc, omega).
+    Raises MissingPropertyError for components not in the library.
+    """
+
+    _R: float = 8.314  # J/(mol·K)
+
+    def __init__(self, components: list[str]) -> None:
+        missing = [c for c in components if c not in COMPONENT_LIBRARY]
+        if missing:
+            raise MissingPropertyError(
+                f"Components not in library: {missing}. "
+                f"Available: {sorted(COMPONENT_LIBRARY)}"
+            )
+        n = len(components)
+        self.Tc    = np.zeros(n)   # K
+        self.Pc    = np.zeros(n)   # Pa
+        self.omega = np.zeros(n)
+        for i, cid in enumerate(components):
+            c = COMPONENT_LIBRARY[cid]
+            if c.Tc <= 0 or c.Pc <= 0:
+                raise MissingPropertyError(
+                    f"Component '{cid}' has Tc={c.Tc} K or Pc={c.Pc} bar — "
+                    "both must be positive."
+                )
+            self.Tc[i]    = c.Tc
+            self.Pc[i]    = c.Pc * 1e5   # bar → Pa
+            self.omega[i] = c.omega
+
+    # ── pure-component helpers ────────────────────────────────────────────────
+
+    def _alpha(self, T: float, omega: float, Tc: float) -> float:
+        """Soave alpha function for a single component."""
+        kappa = 0.37464 + 1.54226 * omega - 0.26992 * omega**2
+        Tr = T / Tc
+        return (1.0 + kappa * (1.0 - np.sqrt(Tr))) ** 2
+
+    def _a_pure(self, T: float, i: int) -> float:
+        """Attractive parameter a(T) for component i, Pa·m⁶/mol²."""
+        R = self._R
+        a_c = 0.45724 * R**2 * self.Tc[i]**2 / self.Pc[i]
+        return a_c * self._alpha(T, self.omega[i], self.Tc[i])
+
+    def _b_pure(self, i: int) -> float:
+        """Repulsive parameter b for component i, m³/mol."""
+        return 0.07780 * self._R * self.Tc[i] / self.Pc[i]
+
+    # ── mixing rules ──────────────────────────────────────────────────────────
+
+    def _mix_params(
+        self,
+        T: float,
+        y: np.ndarray,
+        kij: np.ndarray | None = None,
+    ) -> tuple[float, float, np.ndarray, np.ndarray]:
+        """Van der Waals one-fluid mixing rules.
+
+        Returns (a_mix, b_mix, a_i, a_ij) where a_ij is the n×n cross-parameter
+        matrix used later in the fugacity coefficient formula.
+        """
+        n = len(y)
+        a_i = np.array([self._a_pure(T, i) for i in range(n)])
+        b_i = np.array([self._b_pure(i)    for i in range(n)])
+        if kij is None:
+            kij = np.zeros((n, n))
+        # a_ij = sqrt(a_i * a_j) * (1 - kij)
+        a_ij  = np.outer(np.sqrt(a_i), np.sqrt(a_i)) * (1.0 - kij)
+        a_mix = float(np.sum(np.outer(y, y) * a_ij))
+        b_mix = float(np.dot(y, b_i))
+        return a_mix, b_mix, a_i, a_ij
+
+    # ── cubic Z-factor solver ─────────────────────────────────────────────────
+
+    def _solve_Z(
+        self, T: float, P: float, y: np.ndarray, phase: str
+    ) -> float:
+        """Solve the PR cubic for Z.
+
+        phase="vapor"  → largest real root above B
+        phase="liquid" → smallest real root above B
+        """
+        R = self._R
+        a_mix, b_mix, _, _ = self._mix_params(T, y)
+        A = a_mix * P / (R * T) ** 2
+        B = b_mix * P / (R * T)
+
+        # Z³ - (1-B)Z² + (A-3B²-2B)Z - (AB-B²-B³) = 0
+        coeffs = [
+            1.0,
+            -(1.0 - B),
+            (A - 3.0 * B**2 - 2.0 * B),
+            -(A * B - B**2 - B**3),
+        ]
+        roots = np.roots(coeffs)
+        real_roots = roots[
+            (np.abs(roots.imag) < 1e-6) & (roots.real > B)
+        ].real
+
+        if len(real_roots) == 0:
+            raise ThermodynamicError(
+                f"No valid Z roots found at T={T:.1f} K, P={P:.0f} Pa. "
+                "Check that feed conditions are above the triple point."
+            )
+
+        if phase == "vapor":
+            return float(np.max(real_roots))
+        return float(np.min(real_roots))
+
+    # ── fugacity coefficients ─────────────────────────────────────────────────
+
+    def fugacity_coefficients(
+        self, T: float, P: float, y: np.ndarray, phase: str
+    ) -> np.ndarray:
+        """Return ln(φ_i) for each component.
+
+        T in K, P in Pa, y mole-fraction array (liquid x or vapor y).
+        phase must be "liquid" or "vapor" to select the correct Z root.
+        """
+        R    = self._R
+        Z    = self._solve_Z(T, P, y, phase)
+        a_mix, b_mix, _, a_ij = self._mix_params(T, y)
+        A    = a_mix * P / (R * T) ** 2
+        B    = b_mix * P / (R * T)
+        b_i  = np.array([self._b_pure(i) for i in range(len(y))])
+
+        sqrt2   = np.sqrt(2.0)
+        log_arg = (Z + (1.0 + sqrt2) * B) / (Z + (1.0 - sqrt2) * B)
+
+        ln_phi = np.zeros(len(y))
+        for i in range(len(y)):
+            sum_ya_ij = 2.0 * float(np.sum(y * a_ij[i, :]))
+            ln_phi[i] = (
+                b_i[i] / b_mix * (Z - 1.0)
+                - np.log(Z - B)
+                - A / (2.0 * sqrt2 * B)
+                * (sum_ya_ij / a_mix - b_i[i] / b_mix)
+                * np.log(log_arg)
+            )
+        return ln_phi
