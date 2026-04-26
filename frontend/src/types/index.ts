@@ -112,6 +112,7 @@ export interface FlowsheetEdge {
   target: string
   label?: string
   source_handle?: string
+  target_handle?: string
 }
 
 export interface Flowsheet {

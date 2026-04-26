@@ -39,7 +39,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { fetchComponents, fetchSimulation, runPinchAnalysis, runSimulation, saveFlowsheet } from '../api/client'
+import { fetchComponentByCas, fetchComponents, fetchSimulation, runPinchAnalysis, runSimulation, saveFlowsheet } from '../api/client'
 import { UnitNode } from '../components/flowsheet/UnitNode'
 import { StreamEdge } from '../components/flowsheet/StreamEdge'
 import { ResultsPanel } from '../components/results/ResultsPanel'
@@ -67,22 +67,23 @@ const EDGE_TYPES = { stream: StreamEdge } as const
 // ── Sidebar palette metadata ──────────────────────────────────────────────────
 
 const PALETTE_ITEMS = [
-  { type: 'feed',           label: 'Feed',           desc: 'Feed stream source',          bar: 'bg-teal-500'    },
-  { type: 'mixer',          label: 'Mixer',          desc: 'Combine multiple streams',    bar: 'bg-violet-500'  },
-  { type: 'splitter',       label: 'Splitter',       desc: 'Split one stream into two',   bar: 'bg-amber-500'   },
-  { type: 'heat_exchanger', label: 'Heat Exchanger', desc: 'Heater / cooler',             bar: 'bg-red-500'     },
-  { type: 'flash_drum',     label: 'Flash Drum',     desc: 'Isothermal VLE flash',        bar: 'bg-sky-500'     },
-  { type: 'pfr',            label: 'PFR',            desc: 'Plug-flow reactor',           bar: 'bg-lime-500'    },
-  { type: 'cstr',           label: 'CSTR',           desc: 'Stirred-tank reactor + MPC',  bar: 'bg-cyan-500'    },
-  { type: 'pump',           label: 'Pump',           desc: 'Pressure increase',           bar: 'bg-orange-500'  },
-  { type: 'product',        label: 'Product',        desc: 'Product stream sink',         bar: 'bg-emerald-500' },
+  { type: 'feed',                 label: 'Feed',           desc: 'Feed stream source',          bar: 'bg-teal-500'    },
+  { type: 'mixer',                label: 'Mixer',          desc: 'Combine multiple streams',    bar: 'bg-violet-500'  },
+  { type: 'splitter',             label: 'Splitter',       desc: 'Split one stream into two',   bar: 'bg-amber-500'   },
+  { type: 'heat_exchanger',       label: 'Heat Exchanger', desc: 'Heater / cooler',             bar: 'bg-red-500'     },
+  { type: 'flash_drum',           label: 'Flash Drum',     desc: 'Isothermal VLE flash',        bar: 'bg-sky-500'     },
+  { type: 'distillation_shortcut',label: 'Distillation',   desc: 'FUG shortcut column',         bar: 'bg-blue-500'    },
+  { type: 'pfr',                  label: 'PFR',            desc: 'Plug-flow reactor',           bar: 'bg-lime-500'    },
+  { type: 'cstr',                 label: 'CSTR',           desc: 'Stirred-tank reactor + MPC',  bar: 'bg-cyan-500'    },
+  { type: 'pump',                 label: 'Pump',           desc: 'Pressure increase',           bar: 'bg-orange-500'  },
+  { type: 'product',              label: 'Product',        desc: 'Product stream sink',         bar: 'bg-emerald-500' },
 ]
 
 // ── Inlet counts per unit type (mirrors UnitNode META) ────────────────────────
 
 const UNIT_INLETS: Record<string, number> = {
   feed: 0, product: 1, mixer: 2, splitter: 1,
-  heat_exchanger: 1, flash_drum: 1, pfr: 1, pump: 1, cstr: 1,
+  heat_exchanger: 1, flash_drum: 1, distillation_shortcut: 1, pfr: 1, pump: 1, cstr: 1,
 }
 
 function inletHandleIds(count: number): string[] {
@@ -148,16 +149,21 @@ function FeedComponentPanel({
 
   useEffect(() => {
     fetchComponents(undefined, 100)
-      .then(rows => {
+      .then(async rows => {
         setAllComponents(rows)
-        setNameMap(prev => {
-          const m = { ...prev }
-          rows.forEach(r => { if (r.cas_number) m[r.cas_number] = r.name })
-          return m
-        })
+        const m: Record<string, string> = {}
+        rows.forEach(r => { if (r.cas_number) m[r.cas_number] = r.name })
+        // Fill in names for any CAS keys already in the composition but not in the 100 fetched
+        const missing = Object.keys(comp).filter(cas => !m[cas])
+        await Promise.all(missing.map(cas =>
+          fetchComponentByCas(cas)
+            .then(c => { m[c.cas_number] = c.name })
+            .catch(() => {})
+        ))
+        setNameMap(prev => ({ ...prev, ...m }))
       })
       .catch(() => {/* ignore */})
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setCasValue = (cas: string, val: number) =>
     onChange(nodeId, { ...data, composition: { ...comp, [cas]: val } })
@@ -431,6 +437,61 @@ function UnitParams({
               value={(data.efficiency as number) ?? 0.75}
               onChange={e => u('efficiency', +e.target.value)} />
           </ParamField>
+        </>
+      )}
+
+      {/* ── Distillation Shortcut (FUG) ── */}
+      {type === 'distillation_shortcut' && (
+        <>
+          <ParamField label="Light key (CAS or name)">
+            <input className={inputCls()} placeholder="e.g. 71-43-2"
+              value={(data.light_key as string) ?? ''}
+              onChange={e => u('light_key', e.target.value)} />
+          </ParamField>
+          <ParamField label="Heavy key (CAS or name)">
+            <input className={inputCls()} placeholder="e.g. 108-88-3"
+              value={(data.heavy_key as string) ?? ''}
+              onChange={e => u('heavy_key', e.target.value)} />
+          </ParamField>
+          <ParamField label="LK recovery (distillate)">
+            <input type="number" step="0.01" min="0.01" max="0.9999" className={inputCls()}
+              value={(data.lk_recovery as number) ?? 0.99}
+              onChange={e => u('lk_recovery', +e.target.value)} />
+          </ParamField>
+          <ParamField label="HK recovery (bottoms)">
+            <input type="number" step="0.01" min="0.01" max="0.9999" className={inputCls()}
+              value={(data.hk_recovery as number) ?? 0.99}
+              onChange={e => u('hk_recovery', +e.target.value)} />
+          </ParamField>
+          <ParamField label="Reflux ratio">
+            <input type="number" step="0.1" min="0.01" className={inputCls()}
+              value={(data.reflux_ratio as number) ?? 2.0}
+              onChange={e => u('reflux_ratio', +e.target.value)} />
+          </ParamField>
+          <ParamField label="Feed liquid fraction (q)">
+            <input type="number" step="0.1" min="0" max="1" className={inputCls()}
+              value={(data.q as number) ?? 1.0}
+              onChange={e => u('q', +e.target.value)} />
+          </ParamField>
+          <ParamField label="Condenser type">
+            <select className={selectCls()}
+              value={(data.condenser_type as string) ?? 'total'}
+              onChange={e => u('condenser_type', e.target.value)}>
+              <option value="total">Total</option>
+              <option value="partial">Partial</option>
+            </select>
+          </ParamField>
+          <ParamField label="Property package">
+            <select className={selectCls()}
+              value={(data.property_package as string) ?? 'ideal'}
+              onChange={e => u('property_package', e.target.value)}>
+              <option value="ideal">Ideal (Raoult's Law)</option>
+              <option value="peng_robinson">Peng-Robinson</option>
+            </select>
+          </ParamField>
+          <p className="text-[10px] text-slate-500 mt-1">
+            Outlet 0 = distillate · Outlet 1 = bottoms
+          </p>
         </>
       )}
 
@@ -763,6 +824,7 @@ function Canvas({ simId }: { simId: string }) {
             source: e.source,
             target: e.target,
             sourceHandle: e.source_handle ?? '0',
+            targetHandle: e.target_handle,
             label: e.label,
             data: {},
           })))
@@ -804,6 +866,7 @@ function Canvas({ simId }: { simId: string }) {
       target: e.target,
       label: e.label as string | undefined,
       source_handle: e.sourceHandle ?? '0',
+      target_handle: e.targetHandle ?? undefined,
     }))
 
     await saveFlowsheet(simId, fsNodes, fsEdges)
@@ -903,7 +966,8 @@ function Canvas({ simId }: { simId: string }) {
           ...(nodeType === 'splitter'       && { fractions: [0.5, 0.5] }),
           ...(nodeType === 'pfr'            && { reactant: 'benzene', product_comp: 'toluene', conversion: 0.5, delta_Hrxn_J_mol: 0 }),
           ...(nodeType === 'cstr'           && { volume_L: 100, temperature_C: 76.85, coolant_temp_K: 300 }),
-          ...(nodeType === 'pump'           && { delta_P_bar: 1, efficiency: 0.75 }),
+          ...(nodeType === 'pump'                  && { delta_P_bar: 1, efficiency: 0.75 }),
+          ...(nodeType === 'distillation_shortcut' && { light_key: '', heavy_key: '', lk_recovery: 0.99, hk_recovery: 0.99, reflux_ratio: 2.0, condenser_type: 'total', property_package: 'ideal', q: 1.0 }),
         },
       }
       setNodes(nds => [...nds, newNode])

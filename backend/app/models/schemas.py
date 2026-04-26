@@ -158,6 +158,10 @@ class Edge(BaseModel):
         default=None,
         description="Outlet port index (as string) for multi-outlet nodes, e.g. '0'=liquid '1'=vapour on a flash drum",
     )
+    target_handle: str | None = Field(
+        default=None,
+        description="Inlet port id for multi-inlet nodes, e.g. 'in0'/'in1' on a mixer",
+    )
 
 
 class FlowsheetCreate(BaseModel):

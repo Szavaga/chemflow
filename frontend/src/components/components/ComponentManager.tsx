@@ -218,7 +218,7 @@ export function ComponentManager({
   const doSearch = useCallback(async (q: string) => {
     setLoading(true)
     try {
-      const data = await fetchComponents(q || undefined, 30)
+      const data = await fetchComponents(q || undefined, 50)
       setResults(data)
     } catch {
       // ignore
