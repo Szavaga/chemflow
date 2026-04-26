@@ -1,43 +1,36 @@
 """
-Domain-level exceptions for ChemFlow.
-
-These are raised by thermodynamic functions and unit-op solvers.
-FastAPI exception handlers translate them into HTTP responses where needed.
+ChemFlow domain exceptions.
 """
+
+from __future__ import annotations
 
 
 class ThermodynamicRangeError(ValueError):
-    """Raised when a thermodynamic correlation is evaluated outside its valid range.
+    """Raised when a property calculation is requested outside its valid range.
 
-    Attributes
-    ----------
-    prop : str
-        Name of the property being evaluated (e.g. "vapor_pressure").
-    T : float
-        Temperature at which evaluation was attempted (K).
-    T_min : float
-        Lower bound of the valid temperature range (K).
-    T_max : float
-        Upper bound of the valid temperature range (K).
-    compound : str
-        Compound identifier (name or CAS number).
+    Args:
+        property_name: name of the property / method (e.g. "vapor_pressure")
+        T:             requested temperature (K)
+        T_min:         lower bound of valid range (K)
+        T_max:         upper bound of valid range (K)
+        component:     component name or identifier (optional)
     """
 
     def __init__(
         self,
-        prop: str,
+        property_name: str,
         T: float,
         T_min: float,
         T_max: float,
-        compound: str = "",
+        component: str = "",
     ) -> None:
-        self.prop = prop
+        comp_str = f" for {component!r}" if component else ""
+        super().__init__(
+            f"{property_name}{comp_str}: T={T:.2f} K is outside Antoine valid range "
+            f"[{T_min:.2f}, {T_max:.2f}] K — extrapolation disabled"
+        )
+        self.property_name = property_name
         self.T = T
         self.T_min = T_min
         self.T_max = T_max
-        self.compound = compound
-        where = f" for {compound!r}" if compound else ""
-        super().__init__(
-            f"{prop}{where}: T={T:.2f} K is outside valid Antoine range "
-            f"[{T_min:.2f}, {T_max:.2f}] K"
-        )
+        self.component = component

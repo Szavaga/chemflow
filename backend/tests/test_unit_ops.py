@@ -11,6 +11,7 @@ import math
 import pytest
 
 from app.core.unit_ops import (
+    DistillationShortcut,
     Flash,
     HeatExchanger,
     Mixer,
@@ -754,3 +755,286 @@ class TestFlowsheetSolver:
         edges = [self._edge("E1", "N1", "N2"), self._edge("E2", "N2", "N3")]
         result = FlowsheetSolver(nodes, edges).solve()
         assert result["energy_balance"]["heating_kW"] == pytest.approx(50.0, rel=0.01)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DistillationShortcut — FUG method
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _btx_feed(F: float = 100.0 / 3600.0) -> Stream:
+    """Classic Seader & Henley BTX feed: 45 % benzene, 35 % toluene, 20 % xylene.
+
+    F defaults to 100 kmol/hr expressed in mol/s.
+    """
+    return Stream(
+        "btx_feed",
+        temperature=98.0,   # ≈ bubble point at 1 atm
+        pressure=1.013,
+        flow=F,
+        composition={"benzene": 0.45, "toluene": 0.35, "xylene": 0.20},
+        vapor_fraction=0.0,
+    )
+
+
+class TestDistillationShortcut:
+
+    # ── basic solve ─────────────────────────────────────────────────────────────
+
+    def test_solve_returns_two_streams(self):
+        feed = _btx_feed()
+        outlets, summary = DistillationShortcut().solve(
+            [feed],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert len(outlets) == 2
+
+    def test_mass_balance(self):
+        feed = _btx_feed()
+        outlets, _ = DistillationShortcut().solve(
+            [feed],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert outlets[0].flow + outlets[1].flow == pytest.approx(feed.flow, rel=1e-6)
+
+    def test_lk_recovery_in_distillate(self):
+        feed = _btx_feed()
+        outlets, _ = DistillationShortcut().solve(
+            [feed],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        distillate, bottoms = outlets
+        tol_D = distillate.flow * distillate.composition["toluene"]
+        tol_B = bottoms.flow   * bottoms.composition["toluene"]
+        recovery = tol_D / (tol_D + tol_B)
+        assert recovery == pytest.approx(0.99, rel=1e-4)
+
+    def test_hk_recovery_in_bottoms(self):
+        feed = _btx_feed()
+        outlets, _ = DistillationShortcut().solve(
+            [feed],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        distillate, bottoms = outlets
+        xyl_B = bottoms.flow   * bottoms.composition["xylene"]
+        xyl_D = distillate.flow * distillate.composition["xylene"]
+        recovery = xyl_B / (xyl_B + xyl_D)
+        assert recovery == pytest.approx(0.99, rel=1e-4)
+
+    def test_benzene_mostly_in_distillate(self):
+        """Benzene is lighter than the LK (toluene) — expect ≥ 99.9 % in distillate."""
+        feed = _btx_feed()
+        outlets, _ = DistillationShortcut().solve(
+            [feed],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        distillate, bottoms = outlets
+        benz_D = distillate.flow * distillate.composition["benzene"]
+        benz_total = feed.flow * feed.composition["benzene"]
+        assert benz_D / benz_total >= 0.999 - 1e-9
+
+    # ── FUG parameter ranges ────────────────────────────────────────────────────
+
+    def test_N_min_positive(self):
+        _, summary = DistillationShortcut().solve(
+            [_btx_feed()],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert summary["N_min"] > 0
+
+    def test_R_min_positive(self):
+        _, summary = DistillationShortcut().solve(
+            [_btx_feed()],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert summary["R_min"] > 0
+
+    def test_N_actual_gt_N_min(self):
+        _, summary = DistillationShortcut().solve(
+            [_btx_feed()],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert summary["N_actual"] > summary["N_min"]
+
+    def test_N_actual_in_reasonable_range(self):
+        """Molokanov correlation for this system should give 8 – 30 actual stages."""
+        _, summary = DistillationShortcut().solve(
+            [_btx_feed()],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert 8 <= summary["N_actual"] <= 30
+
+    def test_R_gt_R_min_enforced(self):
+        """reflux_ratio must exceed R_min — we first get R_min, then try R < R_min."""
+        feed = _btx_feed()
+        _, summary = DistillationShortcut().solve(
+            [feed],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=5.0,   # definitely above R_min
+        )
+        R_min = summary["R_min"]
+        with pytest.raises(SimulationError, match="R_min"):
+            DistillationShortcut().solve(
+                [feed],
+                light_key="toluene",
+                heavy_key="xylene",
+                lk_recovery=0.99,
+                hk_recovery=0.99,
+                reflux_ratio=max(0.0, R_min - 0.1),
+            )
+
+    def test_alpha_lk_gt_1(self):
+        _, summary = DistillationShortcut().solve(
+            [_btx_feed()],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert summary["alpha_lk_hk"] > 1.0
+
+    # ── energy balance ──────────────────────────────────────────────────────────
+
+    def test_condenser_duty_positive(self):
+        _, summary = DistillationShortcut().solve(
+            [_btx_feed()],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert summary["condenser_duty_kW"] > 0
+
+    # ── CAS number input ────────────────────────────────────────────────────────
+
+    def test_cas_number_input(self):
+        """light_key and heavy_key can be CAS numbers."""
+        feed = _btx_feed()
+        outlets_cas, summary_cas = DistillationShortcut().solve(
+            [feed],
+            light_key="108-88-3",   # toluene CAS
+            heavy_key="106-42-3",   # p-xylene CAS
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        outlets_id, summary_id = DistillationShortcut().solve(
+            [feed],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+        )
+        assert summary_cas["N_min"] == pytest.approx(summary_id["N_min"], rel=1e-9)
+
+    # ── Peng-Robinson property package ─────────────────────────────────────────
+
+    def test_pr_package_gives_positive_N_min(self):
+        _, summary = DistillationShortcut().solve(
+            [_btx_feed()],
+            light_key="toluene",
+            heavy_key="xylene",
+            lk_recovery=0.99,
+            hk_recovery=0.99,
+            reflux_ratio=2.0,
+            property_package="peng_robinson",
+        )
+        assert summary["N_min"] > 0
+
+    # ── validation errors ───────────────────────────────────────────────────────
+
+    def test_missing_light_key_raises(self):
+        feed = Stream("f", 25.0, 1.0, 1.0, {"benzene": 0.5, "toluene": 0.5})
+        with pytest.raises(SimulationError):
+            DistillationShortcut().solve(
+                [feed],
+                light_key="xylene",    # not in feed
+                heavy_key="toluene",
+                lk_recovery=0.99,
+                hk_recovery=0.99,
+                reflux_ratio=2.0,
+            )
+
+    def test_wrong_inlet_count_raises(self):
+        feed = _btx_feed()
+        with pytest.raises(SimulationError):
+            DistillationShortcut().solve(
+                [feed, feed],
+                light_key="toluene",
+                heavy_key="xylene",
+                lk_recovery=0.99,
+                hk_recovery=0.99,
+                reflux_ratio=2.0,
+            )
+
+    def test_lk_recovery_out_of_range_raises(self):
+        with pytest.raises(SimulationError):
+            DistillationShortcut().solve(
+                [_btx_feed()],
+                light_key="toluene",
+                heavy_key="xylene",
+                lk_recovery=1.0,    # must be strictly < 1
+                hk_recovery=0.99,
+                reflux_ratio=2.0,
+            )
+
+    # ── binary benzene-toluene (no lighter-than-LK components) ─────────────────
+
+    def test_binary_benzene_toluene(self):
+        feed = Stream(
+            "bt_feed", 80.0, 1.013, 1.0,
+            {"benzene": 0.5, "toluene": 0.5}, 0.0,
+        )
+        outlets, summary = DistillationShortcut().solve(
+            [feed],
+            light_key="benzene",
+            heavy_key="toluene",
+            lk_recovery=0.95,
+            hk_recovery=0.95,
+            reflux_ratio=3.0,
+        )
+        assert summary["N_min"] > 0
+        assert summary["R_min"] > 0
+        assert summary["N_actual"] > summary["N_min"]
+        assert outlets[0].flow + outlets[1].flow == pytest.approx(feed.flow, rel=1e-6)

@@ -10,10 +10,13 @@ from app.core.simulation import (
     simulate_flash,
     simulate_heat_exchanger,
 )
+from app.core.unit_ops import DistillationShortcut, SimulationError, Stream
 from app.db import get_db
 from app.models.schemas import (
     CSTRRequest,
     CSTRResponse,
+    DistillationPreviewRequest,
+    DistillationPreviewResponse,
     FlashDrumRequest,
     FlashDrumResponse,
     HeatExchangerRequest,
@@ -58,6 +61,73 @@ def quick_cstr(req: CSTRRequest) -> CSTRResponse:
 @router.post("/simulate/hex", response_model=HeatExchangerResponse)
 def quick_hex(req: HeatExchangerRequest) -> HeatExchangerResponse:
     return simulate_heat_exchanger(HeatExchangerInput(**req.model_dump()))  # type: ignore[return-value]
+
+
+@router.post("/unit-ops/distillation/preview", response_model=DistillationPreviewResponse)
+def distillation_preview(req: DistillationPreviewRequest) -> DistillationPreviewResponse:
+    """Run Fenske-Underwood-Gilliland shortcut distillation without saving to a simulation."""
+    unknown = [c for c in req.components if c not in COMPONENT_LIBRARY]
+    if unknown:
+        raise HTTPException(
+            422,
+            f"Unknown components: {unknown}. Available: {sorted(COMPONENT_LIBRARY)}",
+        )
+    if len(req.feed_composition) != len(req.components):
+        raise HTTPException(
+            422,
+            f"feed_composition length ({len(req.feed_composition)}) must match "
+            f"components length ({len(req.components)})",
+        )
+
+    total = sum(req.feed_composition)
+    if total < 1e-12:
+        raise HTTPException(422, "feed_composition values must not all be zero")
+    z_norm = {c: v / total for c, v in zip(req.components, req.feed_composition)}
+
+    feed = Stream(
+        name="feed",
+        temperature=req.feed_temperature_C,
+        pressure=req.feed_pressure_bar,
+        flow=req.feed_flow_mol_s,
+        composition=z_norm,
+        vapor_fraction=0.0,
+    )
+
+    try:
+        outlets, summary = DistillationShortcut().solve(
+            [feed],
+            light_key=req.light_key,
+            heavy_key=req.heavy_key,
+            lk_recovery=req.lk_recovery,
+            hk_recovery=req.hk_recovery,
+            reflux_ratio=req.reflux_ratio,
+            condenser_type=req.condenser_type,
+            property_package=req.property_package,
+            q=req.q,
+        )
+    except SimulationError as exc:
+        raise HTTPException(422, str(exc))
+
+    distillate, bottoms = outlets[0], outlets[1]
+    R_min = summary["R_min"]
+
+    return DistillationPreviewResponse(
+        N_min=summary["N_min"],
+        R_min=R_min,
+        N_actual=summary["N_actual"],
+        N_feed_tray=summary["N_feed_tray"],
+        alpha_lk_hk=summary["alpha_lk_hk"],
+        distillate_flow_mol_s=distillate.flow,
+        bottoms_flow_mol_s=bottoms.flow,
+        distillate_composition=dict(distillate.composition),
+        bottoms_composition=dict(bottoms.composition),
+        distillate_temperature_C=distillate.temperature,
+        bottoms_temperature_C=bottoms.temperature,
+        condenser_duty_kW=summary["condenser_duty_kW"],
+        reboiler_duty_kW=summary["reboiler_duty_kW"],
+        reflux_ratio=req.reflux_ratio,
+        R_min_warning=req.reflux_ratio < 1.1 * R_min,
+    )
 
 
 # ── Projects ──────────────────────────────────────────────────────────────────

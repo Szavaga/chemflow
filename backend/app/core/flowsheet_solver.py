@@ -74,6 +74,7 @@ import numpy as np
 from app.core.unit_ops import (
     CSTR,
     ConvergenceError,
+    DistillationShortcut,
     Flash,
     HeatExchanger,
     Mixer,
@@ -799,6 +800,21 @@ class FlowsheetSolver:
                 pre_exponential=float(data.get("pre_exponential", 7.2e10 / 60.0)),
                 activation_energy_J_mol=float(data.get("activation_energy_J_mol", 72681.0)),
                 outlet_name=f"{node_id}_out",
+            )
+
+        if node_type == "distillation_shortcut":
+            return DistillationShortcut().solve(
+                inlets,
+                light_key=str(data.get("light_key", "")),
+                heavy_key=str(data.get("heavy_key", "")),
+                lk_recovery=float(data.get("lk_recovery", 0.99)),
+                hk_recovery=float(data.get("hk_recovery", 0.99)),
+                reflux_ratio=float(data.get("reflux_ratio", 2.0)),
+                condenser_type=str(data.get("condenser_type", "total")),
+                property_package=str(data.get("property_package", "ideal")),
+                q=float(data.get("q", 1.0)),
+                distillate_name=f"{node_id}_distillate",
+                bottoms_name=f"{node_id}_bottoms",
             )
 
         self._warnings.append(

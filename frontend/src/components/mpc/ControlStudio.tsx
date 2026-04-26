@@ -1,6 +1,5 @@
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -13,11 +12,11 @@ import { useControlStudio } from '../../hooks/useControlStudio'
 import type { MPCNodeSummary } from '../../types'
 
 interface Props {
-  simId:    string
-  nodeId:   string
+  simId: string
+  nodeId: string
   nodeLabel: string
   ssOperatingPoint: MPCNodeSummary | null
-  onClose:  () => void
+  onClose: () => void
 }
 
 // ── Small chart card ──────────────────────────────────────────────────────────
@@ -31,12 +30,12 @@ function ChartCard({
   unit,
   domain,
 }: {
-  title:   string
-  data:    Record<string, number>[]
+  title: string
+  data: Record<string, number>[]
   dataKey: string
-  spKey?:  string
-  color:   string
-  unit:    string
+  spKey?: string
+  color: string
+  unit: string
   domain?: [number | 'auto', number | 'auto']
 }) {
   const spValue = data.length > 0 && spKey ? (data[data.length - 1][spKey] ?? undefined) : undefined
@@ -47,16 +46,22 @@ function ChartCard({
       <ResponsiveContainer width="100%" height={140}>
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#94a3b8' }} tickCount={5}
-            label={{ value: 't (s)', position: 'insideBottomRight', offset: -4, fontSize: 10, fill: '#64748b' }} />
-          <YAxis domain={domain ?? ['auto', 'auto']}
+          <XAxis 
+            dataKey="time" 
+            tick={{ fontSize: 10, fill: '#94a3b8' }} 
+            tickCount={5}
+            label={{ value: 't (s)', position: 'insideBottomRight', offset: -4, fontSize: 10, fill: '#64748b' }} 
+          />
+          <YAxis 
+            domain={domain ?? ['auto', 'auto']}
             tick={{ fontSize: 10, fill: '#94a3b8' }}
             tickFormatter={v => typeof v === 'number' ? v.toFixed(2) : v}
-            width={46} />
+            width={46} 
+          />
           <Tooltip
             contentStyle={{ background: '#1e293b', border: '1px solid #334155', fontSize: 11 }}
             labelStyle={{ color: '#94a3b8' }}
-            formatter={(v: number) => [`${v.toFixed(4)} ${unit}`, dataKey]}
+            formatter={(v: number) => [v ? `${v.toFixed(4)} ${unit}` : '0.0000', dataKey]}
           />
           {spValue !== undefined && (
             <ReferenceLine y={spValue} stroke="#fbbf24" strokeDasharray="5 3"
@@ -82,9 +87,11 @@ function SliderRow({
     <div className="mb-3">
       <div className="flex justify-between mb-1">
         <span className="text-[11px] text-slate-400">{label}</span>
-        <span className="text-[11px] font-mono text-slate-200">{value.toFixed(step < 1 ? 3 : 1)} {unit}</span>
+        <span className="text-[11px] font-mono text-slate-200">
+          {(value ?? 0).toFixed(step < 1 ? 3 : 1)} {unit}
+        </span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value}
+      <input type="range" min={min} max={max} step={step} value={value ?? 0}
         onChange={e => onChange(parseFloat(e.target.value))}
         className="w-full h-1.5 rounded-full bg-slate-600 appearance-none cursor-pointer
                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3
@@ -104,7 +111,7 @@ function NumRow({
   return (
     <div className="flex items-center justify-between mb-2 gap-2">
       <span className="text-[11px] text-slate-400 flex-1 min-w-0 truncate">{label}</span>
-      <input type="number" step={step} value={value}
+      <input type="number" step={step} value={value ?? 0}
         onChange={e => onChange(parseFloat(e.target.value))}
         className="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-0.5
                    text-[11px] text-slate-100 text-right focus:outline-none focus:border-cyan-500" />
@@ -194,30 +201,30 @@ export function ControlStudio({ simId, nodeId, nodeLabel, ssOperatingPoint, onCl
         {/* Controls — 1/3 */}
         <div className="w-72 flex-shrink-0 border-l border-slate-700 overflow-y-auto p-4">
           {/* Live metrics */}
-          {currentState && (
+          {currentState && currentState.states && currentState.states.length >= 2 && (
             <div className="grid grid-cols-2 gap-2 mb-4">
               <div className="bg-slate-800 rounded p-2 text-center">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wide">CA</p>
                 <p className="text-[13px] font-mono text-cyan-300">
-                  {currentState.states[0].toFixed(4)}
+                  {currentState.states[0]?.toFixed(4) ?? "0.0000"}
                 </p>
               </div>
               <div className="bg-slate-800 rounded p-2 text-center">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wide">T (K)</p>
                 <p className="text-[13px] font-mono text-red-300">
-                  {currentState.states[1].toFixed(1)}
+                  {currentState.states[1]?.toFixed(1) ?? "0.0"}
                 </p>
               </div>
               <div className="bg-slate-800 rounded p-2 text-center">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wide">IAE CA</p>
                 <p className="text-[12px] font-mono text-slate-300">
-                  {currentState.iae_ca.toFixed(3)}
+                  {currentState.iae_ca?.toFixed(3) ?? "0.000"}
                 </p>
               </div>
               <div className="bg-slate-800 rounded p-2 text-center">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wide">IAE T</p>
                 <p className="text-[12px] font-mono text-slate-300">
-                  {currentState.iae_temp.toFixed(1)}
+                  {currentState.iae_temp?.toFixed(1) ?? "0.0"}
                 </p>
               </div>
             </div>
@@ -279,33 +286,43 @@ export function ControlStudio({ simId, nodeId, nodeLabel, ssOperatingPoint, onCl
 
           {/* Steady-state seed info */}
           {ssOperatingPoint && (
-            <>
+            <div className="mt-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-cyan-500 mb-2">
                 SS Operating Point
               </p>
               <div className="bg-slate-800 rounded p-2 text-[11px] text-slate-400 space-y-0.5">
                 <div className="flex justify-between">
                   <span>CA_ss</span>
-                  <span className="font-mono text-slate-300">{ssOperatingPoint.CA_ss.toFixed(4)} mol/L</span>
+                  <span className="font-mono text-slate-300">
+                    {ssOperatingPoint.CA_ss?.toFixed(4) ?? "0.0000"} mol/L
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>T_ss</span>
-                  <span className="font-mono text-slate-300">{ssOperatingPoint.T_ss_K.toFixed(1)} K</span>
+                  <span className="font-mono text-slate-300">
+                    {ssOperatingPoint.T_ss_K?.toFixed(1) ?? "0.0"} K
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>F_ss</span>
-                  <span className="font-mono text-slate-300">{ssOperatingPoint.F_ss_L_min.toFixed(1)} L/min</span>
+                  <span className="font-mono text-slate-300">
+                    {ssOperatingPoint.F_ss_L_min?.toFixed(1) ?? "0.0"} L/min
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Tc_ss</span>
-                  <span className="font-mono text-slate-300">{ssOperatingPoint.Tc_ss_K.toFixed(1)} K</span>
+                  <span className="font-mono text-slate-300">
+                    {ssOperatingPoint.Tc_ss_K?.toFixed(1) ?? "0.0"} K
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Conversion</span>
-                  <span className="font-mono text-slate-300">{(ssOperatingPoint.conversion * 100).toFixed(1)}%</span>
+                  <span className="font-mono text-slate-300">
+                    {((ssOperatingPoint.conversion ?? 0) * 100).toFixed(1)}%
+                  </span>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

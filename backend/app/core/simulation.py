@@ -9,13 +9,14 @@ Implements steady-state unit operations for common pharma/chemical processes:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
 from scipy.optimize import brentq
 
 from app.core.activity import wilson_gammas
+from app.core.exceptions import ThermodynamicRangeError
 
 R_GAS = 8.314  # J/(mol·K)
 
@@ -28,6 +29,10 @@ class ChemComponent:
 
     Antoine equation (base-10 log):
         log10(P_vap / mmHg) = A - B / (T_°C + C)
+
+    tmin_C / tmax_C mark the valid temperature range (°C) for the Antoine
+    correlation.  vapor_pressure() raises ThermodynamicRangeError outside
+    this range when both bounds are set.
     """
     name: str
     molecular_weight: float   # g/mol
@@ -37,9 +42,23 @@ class ChemComponent:
     antoine_A: float
     antoine_B: float
     antoine_C: float
+    tmin_C: Optional[float] = None   # Antoine valid range lower bound, °C
+    tmax_C: Optional[float] = None   # Antoine valid range upper bound, °C
 
     def vapor_pressure(self, T_C: float) -> float:
-        """Return saturation vapour pressure in bar at T_C °C."""
+        """Return saturation vapour pressure in bar at T_C °C.
+
+        Raises ThermodynamicRangeError when T_C is outside the Antoine
+        valid range and both tmin_C and tmax_C are set.
+        """
+        if self.tmin_C is not None and self.tmax_C is not None:
+            T_K = T_C + 273.15
+            T_min_K = self.tmin_C + 273.15
+            T_max_K = self.tmax_C + 273.15
+            if not (T_min_K <= T_K <= T_max_K):
+                raise ThermodynamicRangeError(
+                    "vapor_pressure", T_K, T_min_K, T_max_K, self.name
+                )
         log_p = self.antoine_A - self.antoine_B / (T_C + self.antoine_C)
         p_mmhg = 10.0 ** log_p
         return p_mmhg * 1.33322e-3  # mmHg → bar
@@ -61,6 +80,7 @@ COMPONENT_LIBRARY: dict[str, ChemComponent] = {
     "water": ChemComponent(
         "Water", 18.02, 647.1, 220.6, 0.345,
         8.07131, 1730.630, 233.426,
+        tmin_C=0.0, tmax_C=200.0,
     ),
     "methanol": ChemComponent(
         "Methanol", 32.04, 512.6, 80.97, 0.565,
@@ -138,6 +158,10 @@ COMPONENT_LIBRARY: dict[str, ChemComponent] = {
         "Diethyl Ether", 74.12, 466.7, 36.4, 0.281,
         6.92032, 1064.070, 228.799,
     ),
+    "xylene": ChemComponent(
+        "p-Xylene", 106.17, 616.2, 35.1, 0.322,
+        6.99052, 1453.430, 215.307,
+    ),
 }
 
 
@@ -169,7 +193,11 @@ CAS_LOOKUP: dict[str, str] = {
     "64-19-7":   "acetic_acid",
     "67-66-3":   "chloroform",
     "60-29-7":   "diethyl_ether",
+    "106-42-3":  "xylene",   # p-xylene
 }
+
+
+CAS_REVERSE_LOOKUP: dict[str, str] = {v: k for k, v in CAS_LOOKUP.items()}
 
 
 def resolve_composition(composition: dict[str, float]) -> dict[str, float]:

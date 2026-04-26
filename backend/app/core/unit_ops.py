@@ -8,12 +8,13 @@ Each unit operation:
 
 Supported unit operations
 --------------------------
-  Mixer         — combines N inlets, conserves mass and enthalpy
-  Splitter      — splits one inlet into N outlets by specified fractions
-  HeatExchanger — single-stream heater/cooler (duty or target-T mode)
-  PFR           — conversion-specified plug flow reactor (stoichiometry dict)
-  Flash         — isothermal two-phase VLE via Rachford-Rice + Raoult's law
-  Pump          — raises liquid pressure; calculates shaft work
+  Mixer                — combines N inlets, conserves mass and enthalpy
+  Splitter             — splits one inlet into N outlets by specified fractions
+  HeatExchanger        — single-stream heater/cooler (duty or target-T mode)
+  PFR                  — conversion-specified plug flow reactor (stoichiometry dict)
+  Flash                — isothermal two-phase VLE via Rachford-Rice + Raoult's law
+  Pump                 — raises liquid pressure; calculates shaft work
+  DistillationShortcut — FUG shortcut method (Fenske-Underwood-Gilliland)
 """
 
 from __future__ import annotations
@@ -844,3 +845,265 @@ class CSTR:
             "volume_L":          volume_L,
         }
         return [outlet], summary
+
+
+# ── DistillationShortcut ───────────────────────────────────────────────────────
+
+class DistillationShortcut:
+    """
+    Shortcut distillation column design — Fenske-Underwood-Gilliland (FUG) method.
+
+    Fenske   — minimum theoretical stages at total reflux (N_min)
+    Underwood — minimum reflux ratio (R_min) via Molokanov (1972) analytical fit
+    Gilliland — actual theoretical stages (N_actual) at operating reflux R > R_min
+
+    Component distribution assumption:
+      LK  → lk_recovery fraction to distillate
+      HK  → hk_recovery fraction to bottoms
+      Lighter than LK (α > α_LK) → 99.9 % to distillate
+      Heavier than HK (α < 1)    → 99.9 % to bottoms
+
+    ``light_key`` and ``heavy_key`` accept either a component-library ID
+    (e.g. "toluene") or a CAS number (e.g. "108-88-3").
+    """
+
+    def solve(
+        self,
+        inlets: list[Stream],
+        *,
+        light_key: str,
+        heavy_key: str,
+        lk_recovery: float = 0.99,
+        hk_recovery: float = 0.99,
+        reflux_ratio: float,
+        condenser_type: str = "total",
+        property_package: str = "ideal",
+        q: float = 1.0,
+        distillate_name: str = "distillate",
+        bottoms_name: str = "bottoms",
+    ) -> tuple[list[Stream], dict[str, Any]]:
+        if len(inlets) != 1:
+            raise SimulationError(
+                f"DistillationShortcut expects exactly 1 inlet, got {len(inlets)}"
+            )
+        feed = inlets[0]
+
+        from app.core.simulation import CAS_LOOKUP
+        lk_id = CAS_LOOKUP.get(light_key, light_key)
+        hk_id = CAS_LOOKUP.get(heavy_key, heavy_key)
+
+        comps = list(feed.composition)
+        z = dict(feed.composition)
+        F = feed.flow
+        P = feed.pressure
+
+        if lk_id not in comps:
+            raise SimulationError(
+                f"Light key '{lk_id}' not found in feed composition {comps}"
+            )
+        if hk_id not in comps:
+            raise SimulationError(
+                f"Heavy key '{hk_id}' not found in feed composition {comps}"
+            )
+        if not (0.0 < lk_recovery < 1.0):
+            raise SimulationError(
+                f"lk_recovery must be in (0, 1), got {lk_recovery}"
+            )
+        if not (0.0 < hk_recovery < 1.0):
+            raise SimulationError(
+                f"hk_recovery must be in (0, 1), got {hk_recovery}"
+            )
+        if reflux_ratio <= 0:
+            raise SimulationError(
+                f"reflux_ratio must be positive, got {reflux_ratio}"
+            )
+
+        unknown = [c for c in comps if c not in COMPONENT_LIBRARY]
+        if unknown:
+            raise SimulationError(
+                f"DistillationShortcut: components not in library: {unknown}"
+            )
+
+        # ── Average column temperature ────────────────────────────────────────────
+        T_bubble_feed = self._bubble_T_ideal(z, P)
+        T_avg = 0.5 * (feed.temperature + T_bubble_feed)
+
+        # ── K-values and relative volatilities at T_avg ───────────────────────────
+        K = self._K_values(T_avg, P, comps, z, property_package)
+        K_HK = K[hk_id]
+        if K_HK < 1e-15:
+            raise SimulationError(
+                f"K-value for heavy key '{hk_id}' ≈ 0 at T={T_avg:.1f} °C — "
+                "verify component properties and feed conditions"
+            )
+        alpha = {c: K[c] / K_HK for c in comps}
+        alpha_LK = alpha[lk_id]
+
+        if alpha_LK <= 1.0:
+            raise SimulationError(
+                f"Light key '{lk_id}' has α={alpha_LK:.4f} ≤ 1 at T={T_avg:.1f} °C — "
+                "LK must be more volatile than HK"
+            )
+
+        # ── Component distribution ────────────────────────────────────────────────
+        n_D: dict[str, float] = {}
+        n_B: dict[str, float] = {}
+        for c in comps:
+            n_feed = z[c] * F
+            if c == lk_id:
+                n_D[c] = lk_recovery * n_feed
+                n_B[c] = (1.0 - lk_recovery) * n_feed
+            elif c == hk_id:
+                n_D[c] = (1.0 - hk_recovery) * n_feed
+                n_B[c] = hk_recovery * n_feed
+            elif alpha[c] > alpha_LK:
+                n_D[c] = 0.999 * n_feed
+                n_B[c] = 0.001 * n_feed
+            else:
+                n_D[c] = 0.001 * n_feed
+                n_B[c] = 0.999 * n_feed
+
+        D = sum(n_D.values())
+        B = sum(n_B.values())
+        if D < 1e-15 or B < 1e-15:
+            raise SimulationError(
+                "Component distribution produced zero distillate or bottoms flow"
+            )
+        x_D = _normalise(n_D)
+        x_B = _normalise(n_B)
+
+        # ── Fenske: N_min ─────────────────────────────────────────────────────────
+        ratio_D = x_D[lk_id] / max(x_D[hk_id], 1e-15)
+        ratio_B = x_B[lk_id] / max(x_B[hk_id], 1e-15)
+        if ratio_D <= 0 or ratio_B <= 0:
+            raise SimulationError("Cannot compute Fenske: zero key-component mole fraction")
+        N_min = float(np.log(ratio_D / ratio_B) / np.log(alpha_LK))
+
+        # ── Underwood: theta and R_min ────────────────────────────────────────────
+        alpha_arr = np.array([alpha[c] for c in comps])
+        z_arr     = np.array([z[c]     for c in comps])
+        rhs       = 1.0 - q
+
+        def _underwood_feed(theta: float) -> float:
+            return float(np.sum(alpha_arr * z_arr / (alpha_arr - theta))) - rhs
+
+        lo, hi = 1.0 + 1e-8, alpha_LK - 1e-8
+        f_lo, f_hi = _underwood_feed(lo), _underwood_feed(hi)
+        if f_lo * f_hi >= 0:
+            raise SimulationError(
+                f"Underwood bracket has no sign change: f({lo:.2e})={f_lo:.3f}, "
+                f"f({hi:.4f})={f_hi:.3f}. α_LK={alpha_LK:.4f}. "
+                "Verify that the light key is more volatile than the heavy key."
+            )
+        theta = float(brentq(_underwood_feed, lo, hi, xtol=1e-10))
+
+        x_D_arr = np.array([x_D[c] for c in comps])
+        R_min   = float(np.sum(alpha_arr * x_D_arr / (alpha_arr - theta))) - 1.0
+        R_min   = max(R_min, 0.0)   # guard against tiny negative from numerics
+
+        # ── Gilliland (Molokanov 1972): N_actual ──────────────────────────────────
+        N_actual, N_feed = self._gilliland(N_min, R_min, reflux_ratio)
+
+        # ── Product stream temperatures (bubble points) ───────────────────────────
+        T_D = self._bubble_T_ideal(x_D, P)
+        T_B = self._bubble_T_ideal(x_B, P)
+
+        # ── Energy balance ────────────────────────────────────────────────────────
+        # Overhead vapour flow V = (R + 1) · D
+        V = (reflux_ratio + 1.0) * D
+        dHvap_D = sum(x_D[c] * _extra(c)[2] for c in comps)
+        Q_condenser = V * dHvap_D   # W  (latent heat to condense overhead)
+
+        # Overall energy balance: Q_R = Q_C + D·H_D + B·H_B - F·H_F
+        vf_D_stream = 0.0 if condenser_type == "total" else 1.0
+        H_D = mixture_enthalpy(x_D, T_D, vf_D_stream)
+        H_B = mixture_enthalpy(x_B, T_B, 0.0)
+        H_F = feed.enthalpy
+        Q_reboiler = Q_condenser + D * H_D + B * H_B - F * H_F   # W
+
+        # ── Build output streams ──────────────────────────────────────────────────
+        distillate = Stream(distillate_name, T_D, P, D, x_D, vf_D_stream)
+        bottoms    = Stream(bottoms_name,    T_B, P, B, x_B, 0.0)
+
+        summary: dict[str, Any] = {
+            "N_min":              float(N_min),
+            "R_min":              float(R_min),
+            "N_actual":           int(N_actual),
+            "N_feed_tray":        int(N_feed),
+            "alpha_lk_hk":        float(alpha_LK),
+            "theta_underwood":    float(theta),
+            "T_avg_C":            float(T_avg),
+            "T_bubble_feed_C":    float(T_bubble_feed),
+            "distillate_flow_mol_s": float(D),
+            "bottoms_flow_mol_s":    float(B),
+            "condenser_duty_kW":  float(Q_condenser / 1_000.0),
+            "reboiler_duty_kW":   float(Q_reboiler  / 1_000.0),
+            "reflux_ratio":       float(reflux_ratio),
+            "condenser_type":     condenser_type,
+            "property_package":   property_package,
+            "distillate_stream":  distillate.to_dict(),
+            "bottoms_stream":     bottoms.to_dict(),
+        }
+        return [distillate, bottoms], summary
+
+    # ── helpers ───────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _bubble_T_ideal(composition: dict[str, float], P_bar: float) -> float:
+        """Bubble-point temperature (°C) for an ideal liquid mixture at P_bar."""
+        comp_ids = list(composition)
+        z = np.array([composition[c] for c in comp_ids])
+
+        def f(T_C: float) -> float:
+            VP = np.array([COMPONENT_LIBRARY[c].vapor_pressure(T_C) for c in comp_ids])
+            return float(np.dot(z, VP)) / P_bar - 1.0
+
+        try:
+            return float(brentq(f, -100.0, 500.0, xtol=1e-4))
+        except ValueError as exc:
+            raise SimulationError(
+                "Cannot find bubble-point temperature in −100 … 500 °C. "
+                "Check component properties and operating pressure."
+            ) from exc
+
+    @staticmethod
+    def _K_values(
+        T_C: float,
+        P_bar: float,
+        comps: list[str],
+        composition: dict[str, float],
+        property_package: str,
+    ) -> dict[str, float]:
+        """K-values K_i = y_i / x_i at (T_C, P_bar)."""
+        if property_package == "peng_robinson":
+            try:
+                pr = PengRobinson(comps)
+                T_K  = T_C + 273.15
+                P_Pa = P_bar * 1e5
+                z    = np.array([composition[c] for c in comps])
+                ln_phi_L = pr.fugacity_coefficients(T_K, P_Pa, z, "liquid")
+                ln_phi_V = pr.fugacity_coefficients(T_K, P_Pa, z, "vapor")
+                K_arr = np.exp(ln_phi_L - ln_phi_V)
+                return {comps[i]: float(K_arr[i]) for i in range(len(comps))}
+            except (MissingPropertyError, ThermodynamicError) as exc:
+                raise SimulationError(
+                    f"PR K-value calculation failed: {exc}"
+                ) from exc
+        # Ideal (Raoult's law): K_i = VP_i(T) / P
+        return {c: COMPONENT_LIBRARY[c].vapor_pressure(T_C) / P_bar for c in comps}
+
+    @staticmethod
+    def _gilliland(N_min: float, R_min: float, R: float) -> tuple[int, int]:
+        """Molokanov (1972) analytical fit to the Gilliland correlation."""
+        if R <= R_min:
+            raise SimulationError(
+                f"Actual reflux ratio R={R:.4f} must be greater than "
+                f"R_min={R_min:.4f}. Typically R = 1.2 … 1.5 × R_min."
+            )
+        X = (R - R_min) / (R + 1.0)
+        Y = 1.0 - np.exp(
+            ((1.0 + 54.4 * X) / (11.0 + 117.2 * X)) * ((X - 1.0) / X ** 0.5)
+        )
+        N_actual = (Y + N_min) / (1.0 - Y)
+        N_feed   = int(np.ceil(N_actual * 0.5))
+        return int(np.ceil(N_actual)), N_feed

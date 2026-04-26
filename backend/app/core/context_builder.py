@@ -75,6 +75,8 @@ def build_prompt_context(result: dict[str, Any]) -> str:
     sections.append(_section_metrics(result))
     sections.append(_section_streams(result))
     sections.append(_section_energy(result))
+    sections.append(_section_distillation(result))
+    sections.append(_section_property_packages(result))
     sections.append(_section_diagnostics(result))
 
     body = "\n".join(s for s in sections if s)
@@ -175,6 +177,75 @@ def _section_energy(result: dict[str, Any]) -> str:
     for k, v in sorted(eb.items()):
         if v is not None:
             lines.append(f"- {k}: {v:.3f}")
+    return "\n".join(lines) + "\n"
+
+
+def _section_distillation(result: dict[str, Any]) -> str:
+    node_summaries = result.get("node_summaries") or {}
+    cols = {
+        nid: smry for nid, smry in node_summaries.items()
+        if "N_min" in smry and "R_min" in smry and "N_actual" in smry
+    }
+    if not cols:
+        return ""
+
+    lines = ["## Distillation Columns\n"]
+    for nid, s in sorted(cols.items()):
+        lines.append(f"### {nid}\n")
+        _append_kv(lines, "Method",            "Fenske-Underwood-Gilliland shortcut", "")
+        _append_kv(lines, "N_min (Fenske)",     s.get("N_min"),            "stages")
+        _append_kv(lines, "R_min (Underwood)",  s.get("R_min"),            "")
+        _append_kv(lines, "N_actual (Gilliland)", s.get("N_actual"),        "stages")
+        _append_kv(lines, "Feed tray",          s.get("N_feed_tray"),      "")
+        _append_kv(lines, "Reflux ratio",       s.get("reflux_ratio"),     "")
+        _append_kv(lines, "alpha(LK/HK)",        s.get("alpha_lk_hk"),      "")
+        _append_kv(lines, "Condenser duty",     s.get("condenser_duty_kW"), "kW")
+        _append_kv(lines, "Reboiler duty",      s.get("reboiler_duty_kW"),  "kW")
+        _append_kv(lines, "Property package",   s.get("property_package"),  "")
+        dist = s.get("distillate_stream") or {}
+        bot  = s.get("bottoms_stream") or {}
+        if dist:
+            comp_str = ", ".join(
+                f"{c}: {x:.4f}" for c, x in sorted(dist.get("composition", {}).items())
+            )
+            lines.append(
+                f"- Distillate: {dist.get('flow', 0.0):.4f} mol/s  "
+                f"@ {dist.get('temperature', 0.0):.1f} °C  [{comp_str}]"
+            )
+        if bot:
+            comp_str = ", ".join(
+                f"{c}: {x:.4f}" for c, x in sorted(bot.get("composition", {}).items())
+            )
+            lines.append(
+                f"- Bottoms: {bot.get('flow', 0.0):.4f} mol/s  "
+                f"@ {bot.get('temperature', 0.0):.1f} °C  [{comp_str}]"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def _section_property_packages(result: dict[str, Any]) -> str:
+    node_summaries = result.get("node_summaries") or {}
+    pr_nodes   = [nid for nid, s in node_summaries.items() if s.get("property_package") == "peng_robinson"]
+    ideal_nodes = [nid for nid, s in node_summaries.items() if s.get("property_package") == "ideal"]
+    if not pr_nodes and not ideal_nodes:
+        return ""
+
+    lines = ["## Property Packages\n"]
+    if pr_nodes:
+        lines.append(
+            f"- **Peng-Robinson EoS** (with kij from ChemSep PR database): "
+            f"{', '.join(sorted(pr_nodes))}"
+        )
+        lines.append(
+            "  - Suitable for non-polar and slightly polar mixtures; "
+            "kij = 0 for pairs not in the database (non-polar hydrocarbons are safe; "
+            "polar mixtures such as water/ethanol require validated kij)"
+        )
+    if ideal_nodes:
+        lines.append(
+            f"- **Ideal (Raoult's law + Wilson activity)**: "
+            f"{', '.join(sorted(ideal_nodes))}"
+        )
     return "\n".join(lines) + "\n"
 
 

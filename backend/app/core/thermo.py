@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from app.core.simulation import COMPONENT_LIBRARY
+from app.core.simulation import CAS_REVERSE_LOOKUP, COMPONENT_LIBRARY
 
 
 # ── Thermodynamic exception types ─────────────────────────────────────────────
@@ -62,6 +62,7 @@ _EXTRA: dict[str, tuple[float, float, float, float]] = {
     "acetic_acid":     (123.0,   66.5,   23_700.0,  1049.0),
     "chloroform":      (116.0,   65.7,   29_240.0,  1489.0),
     "diethyl_ether":   (172.0,  112.0,   26_520.0,   713.0),
+    "xylene":          (181.5,  128.0,   36_800.0,   861.0),
 }
 
 # Fallback for any component not in _EXTRA (generic organic liquid-like values).
@@ -196,6 +197,36 @@ class PengRobinson:
             self.Pc[i]    = c.Pc * 1e5   # bar → Pa
             self.omega[i] = c.omega
 
+        self.kij = self._build_kij(components, n)
+
+    def _build_kij(self, components: list[str], n: int) -> np.ndarray:
+        """Build n×n binary interaction parameter matrix from thermo IPDB.
+
+        Falls back to zeros for pairs not in the database or if the thermo
+        package is unavailable.  Key format: 'CAS_lo CAS_hi' (alphabetically
+        sorted so that lookup is symmetric).
+        """
+        kij = np.zeros((n, n))
+        try:
+            from thermo.interaction_parameters import IPDB  # type: ignore[import]
+            tbl = IPDB.tables.get("ChemSep PR", {})
+            if not tbl:
+                return kij
+            for i in range(n):
+                for j in range(i + 1, n):
+                    cas_i = CAS_REVERSE_LOOKUP.get(components[i], "")
+                    cas_j = CAS_REVERSE_LOOKUP.get(components[j], "")
+                    if not cas_i or not cas_j:
+                        continue
+                    key = f"{min(cas_i, cas_j)} {max(cas_i, cas_j)}"
+                    row = tbl.get(key)
+                    if row is not None:
+                        val = row.get("kij") or 0.0
+                        kij[i, j] = kij[j, i] = float(val)
+        except Exception:
+            pass  # thermo not installed or API mismatch — zeros are safe fallback
+        return kij
+
     # ── pure-component helpers ────────────────────────────────────────────────
 
     def _alpha(self, T: float, omega: float, Tc: float) -> float:
@@ -249,7 +280,7 @@ class PengRobinson:
         phase="liquid" → smallest real root above B
         """
         R = self._R
-        a_mix, b_mix, _, _ = self._mix_params(T, y)
+        a_mix, b_mix, _, _ = self._mix_params(T, y, self.kij)
         A = a_mix * P / (R * T) ** 2
         B = b_mix * P / (R * T)
 
@@ -287,7 +318,7 @@ class PengRobinson:
         """
         R    = self._R
         Z    = self._solve_Z(T, P, y, phase)
-        a_mix, b_mix, _, a_ij = self._mix_params(T, y)
+        a_mix, b_mix, _, a_ij = self._mix_params(T, y, self.kij)
         A    = a_mix * P / (R * T) ** 2
         B    = b_mix * P / (R * T)
         b_i  = np.array([self._b_pure(i) for i in range(len(y))])

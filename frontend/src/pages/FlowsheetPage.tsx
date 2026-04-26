@@ -143,11 +143,19 @@ function FeedComponentPanel({
 }) {
   const comp = (data.composition as Record<string, number>) ?? {}
   const [allComponents, setAllComponents] = useState<ChemicalComponent[]>([])
+  const [nameMap, setNameMap] = useState<Record<string, string>>({})
   const [showManager, setShowManager] = useState(false)
 
   useEffect(() => {
     fetchComponents(undefined, 100)
-      .then(setAllComponents)
+      .then(rows => {
+        setAllComponents(rows)
+        setNameMap(prev => {
+          const m = { ...prev }
+          rows.forEach(r => { if (r.cas_number) m[r.cas_number] = r.name })
+          return m
+        })
+      })
       .catch(() => {/* ignore */})
   }, [])
 
@@ -161,16 +169,18 @@ function FeedComponentPanel({
   }
 
   const addComponent = (c: ChemicalComponent) => {
-    if (!(c.cas_number in comp)) {
-      onChange(nodeId, { ...data, composition: { ...comp, [c.cas_number]: 0 } })
+    const key = c.cas_number
+    if (key && !(key in comp)) {
+      onChange(nodeId, { ...data, composition: { ...comp, [key]: 0 } })
+    }
+    if (key) {
+      setNameMap(prev => ({ ...prev, [key]: c.name }))
+      setAllComponents(prev => prev.some(x => x.id === c.id) ? prev : [c, ...prev])
     }
     setShowManager(false)
   }
 
-  const labelFor = (cas: string) => {
-    const found = allComponents.find(c => c.cas_number === cas)
-    return found ? found.name : cas
-  }
+  const labelFor = (cas: string) => nameMap[cas] ?? cas
 
   const missingProps = (cas: string) => {
     const found = allComponents.find(c => c.cas_number === cas)

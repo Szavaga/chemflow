@@ -607,6 +607,42 @@ class RunResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Distillation shortcut preview ─────────────────────────────────────────────
+
+class DistillationPreviewRequest(BaseModel):
+    components: list[str] = Field(min_length=2, examples=[["benzene", "toluene", "xylene"]])
+    feed_composition: list[float] = Field(description="Mole fractions (will be normalised)")
+    feed_flow_mol_s: float = Field(default=1.0, gt=0, description="Total feed flow (mol/s)")
+    feed_temperature_C: float = Field(default=25.0, description="Feed temperature (°C)")
+    feed_pressure_bar: float = Field(default=1.013, gt=0, description="Column pressure (bar)")
+    light_key: str = Field(description="Light-key component ID or CAS number")
+    heavy_key: str = Field(description="Heavy-key component ID or CAS number")
+    lk_recovery: float = Field(default=0.99, gt=0, lt=1, description="LK recovery in distillate")
+    hk_recovery: float = Field(default=0.99, gt=0, lt=1, description="HK recovery in bottoms")
+    reflux_ratio: float = Field(gt=0, description="Actual reflux ratio R (must be > R_min)")
+    condenser_type: Literal["total", "partial"] = "total"
+    property_package: Literal["ideal", "peng_robinson"] = "ideal"
+    q: float = Field(default=1.0, description="Feed quality (1=sat. liquid, 0=sat. vapour)")
+
+
+class DistillationPreviewResponse(BaseModel):
+    N_min: float
+    R_min: float
+    N_actual: int
+    N_feed_tray: int
+    alpha_lk_hk: float
+    distillate_flow_mol_s: float
+    bottoms_flow_mol_s: float
+    distillate_composition: dict[str, float]
+    bottoms_composition: dict[str, float]
+    distillate_temperature_C: float
+    bottoms_temperature_C: float
+    condenser_duty_kW: float
+    reboiler_duty_kW: float
+    reflux_ratio: float
+    R_min_warning: bool = Field(description="True when R < 1.1 × R_min")
+
+
 # Rebuild forward refs so nested schemas resolve correctly
 ProjectDetail.model_rebuild()
 SimulationDetail.model_rebuild()

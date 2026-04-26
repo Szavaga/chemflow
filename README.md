@@ -24,6 +24,7 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 | Flash Drum | T (°C), P (bar), property package | Rachford-Rice + Wilson activity coefficients **or** Peng-Robinson EoS |
 | CSTR | Volume (L), temperature (°C), coolant T (K) | Arrhenius kinetics + `fsolve` steady-state balance |
 | Pump | ΔP (bar), efficiency | Shaft-work calculation |
+| Distillation (shortcut) | Light/heavy key, recovery, reflux ratio | Fenske-Underwood-Gilliland (FUG) method |
 | Product | — | Sink / stream recorder |
 
 ## Recycle solver

@@ -158,6 +158,23 @@ function RecycleIcon() {
   )
 }
 
+function DistillationIcon() {
+  return (
+    <svg {...iconProps}>
+      {/* Column shell — tall vertical rectangle */}
+      <rect x="7" y="2" width="10" height="20" rx="1" />
+      {/* Condenser — small triangle top-left of column */}
+      <polygon points="2,2 7,2 7,7" fill="currentColor" stroke="none" opacity="0.7" />
+      {/* Reboiler — trapezoid at bottom */}
+      <polygon points="6,22 18,22 16,24 8,24" fill="currentColor" stroke="none" opacity="0.7" />
+      {/* Dashed tray lines inside column body */}
+      <line x1="7" y1="8"  x2="17" y2="8"  strokeDasharray="2 1.5" strokeWidth="1" />
+      <line x1="7" y1="13" x2="17" y2="13" strokeDasharray="2 1.5" strokeWidth="1" />
+      <line x1="7" y1="18" x2="17" y2="18" strokeDasharray="2 1.5" strokeWidth="1" />
+    </svg>
+  )
+}
+
 // ── Node metadata ─────────────────────────────────────────────────────────────
 
 interface NodeMeta {
@@ -241,6 +258,14 @@ const META: Record<string, NodeMeta> = {
     icon: 'text-purple-600',
     inlets: 1,
     outlets: 1,
+  },
+  distillation_shortcut: {
+    Icon: DistillationIcon,
+    bar: 'bg-blue-500',
+    icon: 'text-blue-600',
+    inlets: 1,
+    outlets: 2,
+    outletLabels: ['distillate', 'bottoms'],
   },
 }
 
