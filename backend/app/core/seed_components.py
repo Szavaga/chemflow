@@ -235,40 +235,63 @@ async def seed_components(session=None) -> int:
         session = AsyncSessionLocal()
 
     inserted = 0
+    updated = 0
     try:
         for name, cas in SEED_CAS:
-            # Skip if already seeded
-            existing = await session.execute(
+            existing = (await session.execute(
                 select(ChemicalComponent).where(ChemicalComponent.cas_number == cas)
-            )
-            if existing.scalar_one_or_none() is not None:
-                continue
+            )).scalar_one_or_none()
 
             props = _fetch_properties(cas)
-            comp = ChemicalComponent(
-                name=name,
-                cas_number=cas,
-                formula=props.get("formula"),
-                mw=props.get("mw"),
-                tc=props.get("tc"),
-                pc=props.get("pc"),
-                omega=props.get("omega"),
-                antoine_a=props.get("antoine_a"),
-                antoine_b=props.get("antoine_b"),
-                antoine_c=props.get("antoine_c"),
-                antoine_tmin=props.get("antoine_tmin"),
-                antoine_tmax=props.get("antoine_tmax"),
-                antoine_units=props.get("antoine_units"),
-                mu_coeffs=None,
-                is_global=True,
-                project_id=None,
-                created_by=None,
-            )
-            session.add(comp)
-            inserted += 1
+
+            if existing is None:
+                comp = ChemicalComponent(
+                    name=name,
+                    cas_number=cas,
+                    formula=props.get("formula"),
+                    mw=props.get("mw"),
+                    tc=props.get("tc"),
+                    pc=props.get("pc"),
+                    omega=props.get("omega"),
+                    antoine_a=props.get("antoine_a"),
+                    antoine_b=props.get("antoine_b"),
+                    antoine_c=props.get("antoine_c"),
+                    antoine_tmin=props.get("antoine_tmin"),
+                    antoine_tmax=props.get("antoine_tmax"),
+                    antoine_units=props.get("antoine_units"),
+                    mu_coeffs=None,
+                    is_global=True,
+                    project_id=None,
+                    created_by=None,
+                )
+                session.add(comp)
+                inserted += 1
+            elif not existing.is_global or existing.tc is None or existing.pc is None:
+                # Upgrade incomplete or mis-classified existing rows.
+                existing.is_global = True
+                existing.project_id = None
+                existing.name = name
+                if props.get("tc") is not None:
+                    existing.tc = props["tc"]
+                if props.get("pc") is not None:
+                    existing.pc = props["pc"]
+                if props.get("omega") is not None and existing.omega is None:
+                    existing.omega = props["omega"]
+                if props.get("mw") is not None and existing.mw is None:
+                    existing.mw = props["mw"]
+                if props.get("formula") is not None and existing.formula is None:
+                    existing.formula = props["formula"]
+                if props.get("antoine_a") is not None and existing.antoine_a is None:
+                    existing.antoine_a = props["antoine_a"]
+                    existing.antoine_b = props["antoine_b"]
+                    existing.antoine_c = props["antoine_c"]
+                    existing.antoine_tmin = props["antoine_tmin"]
+                    existing.antoine_tmax = props["antoine_tmax"]
+                    existing.antoine_units = props["antoine_units"]
+                updated += 1
 
         await session.commit()
-        logger.info("Seeded %d chemical components", inserted)
+        logger.info("Seeded %d, upgraded %d chemical components", inserted, updated)
     except Exception:
         await session.rollback()
         raise
