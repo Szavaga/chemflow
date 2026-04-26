@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    from app.core.seed_components import seed_components
+    await seed_components()
     yield
 
 

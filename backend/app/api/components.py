@@ -91,13 +91,21 @@ async def search_components(
             ChemicalComponent.is_global == True,  # noqa: E712
             ChemicalComponent.project_id.in_(proj_ids),
         )
-    ).order_by(ChemicalComponent.name).limit(limit)
+    )
+
+    if search:
+        pattern = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                ChemicalComponent.name.ilike(pattern),
+                ChemicalComponent.cas_number.ilike(pattern),
+            )
+        )
+
+    stmt = stmt.order_by(ChemicalComponent.name).limit(limit)
 
     result = await db.execute(stmt)
     rows: list[ChemicalComponent] = list(result.scalars().all())
-
-    if search:
-        rows = [r for r in rows if _matches_search(r, search)]
 
     return [ComponentResponse.model_validate(r) for r in rows]
 

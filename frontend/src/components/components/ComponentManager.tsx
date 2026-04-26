@@ -213,6 +213,7 @@ export function ComponentManager({
   const [showCreate, setShowCreate] = useState(false)
   const [antoineTip, setAntoineTip] = useState<Record<string, string>>({})
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const firstRender = useRef(true)
 
   const doSearch = useCallback(async (q: string) => {
     setLoading(true)
@@ -227,13 +228,12 @@ export function ComponentManager({
   }, [])
 
   useEffect(() => {
+    const delay = firstRender.current ? 0 : 300
+    firstRender.current = false
     clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => doSearch(query), 300)
+    debounceRef.current = setTimeout(() => doSearch(query), delay)
     return () => clearTimeout(debounceRef.current)
   }, [query, doSearch])
-
-  // Initial load
-  useEffect(() => { doSearch('') }, [doSearch])
 
   const checkAntoine = async (cas: string, T = 350) => {
     try {
