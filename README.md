@@ -12,6 +12,11 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 - **Embedded Control Studio** — real-time NMPC loop for CSTR nodes, seeded from the solved operating point (WebSocket, GEKKO/IPOPT)
 - **JWT authentication** — register / login; all flowsheets, simulations, and custom components are per-user
 
+## Changelog
+
+### 2026-04-29
+- **Fix: Feed component addition** — rebuilt the Component Library integration so clicking "Add" in the browser modal reliably updates the feed composition. The `ComponentManager` is now rendered at the top of the canvas component tree and uses functional state updates (`setNodes` / `setSel`) to avoid stale-closure bugs that caused silent no-ops when adding components. Component display names are now lazily fetched per CAS key instead of eagerly pre-loading 100 records.
+
 ## Unit operations
 
 | Unit op | Inputs | Method |

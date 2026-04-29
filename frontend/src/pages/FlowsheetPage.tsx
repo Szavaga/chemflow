@@ -37,9 +37,9 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { fetchComponentByCas, fetchComponents, fetchSimulation, runPinchAnalysis, runSimulation, saveFlowsheet } from '../api/client'
+import { fetchComponentByCas, fetchSimulation, runPinchAnalysis, runSimulation, saveFlowsheet } from '../api/client'
 import { UnitNode } from '../components/flowsheet/UnitNode'
 import { StreamEdge } from '../components/flowsheet/StreamEdge'
 import { ResultsPanel } from '../components/results/ResultsPanel'
@@ -135,35 +135,27 @@ function FeedComponentPanel({
   nodeId,
   data,
   onChange,
-  projectId,
+  onBrowse,
 }: {
   nodeId: string
   data: D
   onChange: (id: string, d: D) => void
-  projectId: string
+  onBrowse: (nodeId: string) => void
 }) {
   const comp = (data.composition as Record<string, number>) ?? {}
-  const [allComponents, setAllComponents] = useState<ChemicalComponent[]>([])
   const [nameMap, setNameMap] = useState<Record<string, string>>({})
-  const [showManager, setShowManager] = useState(false)
 
+  // Fetch display names for any CAS keys that don't have one yet
+  const casKey = Object.keys(comp).join(',')
   useEffect(() => {
-    fetchComponents(undefined, 100)
-      .then(async rows => {
-        setAllComponents(rows)
-        const m: Record<string, string> = {}
-        rows.forEach(r => { if (r.cas_number) m[r.cas_number] = r.name })
-        // Fill in names for any CAS keys already in the composition but not in the 100 fetched
-        const missing = Object.keys(comp).filter(cas => !m[cas])
-        await Promise.all(missing.map(cas =>
-          fetchComponentByCas(cas)
-            .then(c => { m[c.cas_number] = c.name })
-            .catch(() => {})
-        ))
-        setNameMap(prev => ({ ...prev, ...m }))
-      })
-      .catch(() => {/* ignore */})
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    const missing = Object.keys(comp).filter(cas => !nameMap[cas])
+    if (missing.length === 0) return
+    missing.forEach(cas => {
+      fetchComponentByCas(cas)
+        .then(c => setNameMap(prev => ({ ...prev, [cas]: c.name })))
+        .catch(() => {})
+    })
+  }, [casKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setCasValue = (cas: string, val: number) =>
     onChange(nodeId, { ...data, composition: { ...comp, [cas]: val } })
@@ -172,26 +164,6 @@ function FeedComponentPanel({
     const next = { ...comp }
     delete next[cas]
     onChange(nodeId, { ...data, composition: next })
-  }
-
-  const addComponent = (c: ChemicalComponent) => {
-    const key = c.cas_number
-    if (key && !(key in comp)) {
-      onChange(nodeId, { ...data, composition: { ...comp, [key]: 0 } })
-    }
-    if (key) {
-      setNameMap(prev => ({ ...prev, [key]: c.name }))
-      setAllComponents(prev => prev.some(x => x.id === c.id) ? prev : [c, ...prev])
-    }
-    setShowManager(false)
-  }
-
-  const labelFor = (cas: string) => nameMap[cas] ?? cas
-
-  const missingProps = (cas: string) => {
-    const found = allComponents.find(c => c.cas_number === cas)
-    if (!found) return false
-    return !found.tc || !found.pc || !found.omega
   }
 
   return (
@@ -208,16 +180,10 @@ function FeedComponentPanel({
         <div key={cas} className="mb-2">
           <div className="flex items-center justify-between mb-0.5">
             <span className="text-[11px] text-slate-300 truncate max-w-[130px]" title={cas}>
-              {labelFor(cas)}
+              {nameMap[cas] ?? cas}
             </span>
-            <div className="flex items-center gap-1">
-              {missingProps(cas) && (
-                <span className="text-[9px] bg-amber-800 text-amber-200 px-1 rounded font-bold"
-                  title="Missing Tc/Pc/ω — flash calculations may fail">⚠ props</span>
-              )}
-              <button onClick={() => removeCas(cas)}
-                className="text-slate-600 hover:text-red-400 text-[13px] leading-none">×</button>
-            </div>
+            <button onClick={() => removeCas(cas)}
+              className="text-slate-600 hover:text-red-400 text-[13px] leading-none">×</button>
           </div>
           <input type="number" step="0.01" min="0" max="1" className={inputCls()}
             value={comp[cas] ?? 0}
@@ -225,7 +191,7 @@ function FeedComponentPanel({
         </div>
       ))}
       <button
-        onClick={() => setShowManager(true)}
+        onClick={() => onBrowse(nodeId)}
         className="w-full mt-1 py-1 rounded text-[11px] border border-dashed border-slate-600
                    text-slate-400 hover:border-teal-500 hover:text-teal-400 transition-colors"
       >
@@ -234,15 +200,6 @@ function FeedComponentPanel({
       <p className="text-[10px] text-slate-500 mt-1">
         Fractions are normalised by the solver. Keys are CAS numbers.
       </p>
-
-      {showManager && (
-        <ComponentManager
-          projectId={projectId}
-          activeCasList={Object.keys(comp)}
-          onAdd={addComponent}
-          onClose={() => setShowManager(false)}
-        />
-      )}
     </>
   )
 }
@@ -253,10 +210,12 @@ function UnitParams({
   node,
   onChange,
   projectId,
+  onBrowse,
 }: {
   node: Node
   onChange: (id: string, data: D) => void
   projectId: string
+  onBrowse: (nodeId: string) => void
 }) {
   const data = node.data as D
   const type = data.nodeType as string
@@ -295,7 +254,7 @@ function UnitParams({
             nodeId={node.id}
             data={data}
             onChange={onChange}
-            projectId={projectId}
+            onBrowse={onBrowse}
           />
         </>
       )}
@@ -694,6 +653,7 @@ function ConfigPanel({
   onDelete,
   onOpenControlStudio,
   projectId,
+  onBrowse,
 }: {
   node:     Node
   edges:    Edge[]
@@ -703,6 +663,7 @@ function ConfigPanel({
   onDelete: (id: string) => void
   onOpenControlStudio?: () => void
   projectId: string
+  onBrowse: (nodeId: string) => void
 }) {
   const data = node.data as D
   const type = data.nodeType as string
@@ -757,7 +718,7 @@ function ConfigPanel({
         <p className="text-[10px] font-bold uppercase tracking-widest text-teal-400 px-4 pt-3 pb-1">
           Parameters
         </p>
-        <UnitParams node={node} onChange={onChange} projectId={projectId} />
+        <UnitParams node={node} onChange={onChange} projectId={projectId} onBrowse={onBrowse} />
       </div>
 
       {/* Inlet conditions section */}
@@ -782,6 +743,7 @@ function Canvas({ simId }: { simId: string }) {
 
   const [simName, setSimName]            = useState('')
   const [projectId, setProjectId]        = useState('')
+  const [managerNodeId, setManagerNodeId] = useState<string | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [sel, setSel]                    = useState<Node | null>(null)
@@ -927,6 +889,30 @@ function Canvas({ simId }: { simId: string }) {
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data } : n))
     setSel(prev => prev?.id === id ? { ...prev, data } : prev)
   }
+
+  // ── Component library (lifted out of FeedComponentPanel to avoid stale closures) ──
+
+  const handleAddComponent = useCallback((c: ChemicalComponent) => {
+    const key = c.cas_number
+    if (!key || !managerNodeId) return
+    const applyAdd = (d: D): D => {
+      const comp = (d.composition as Record<string, number>) ?? {}
+      if (key in comp) return d
+      return { ...d, composition: { ...comp, [key]: 0 } }
+    }
+    setNodes(nds => nds.map(n =>
+      n.id === managerNodeId ? { ...n, data: applyAdd(n.data as D) } : n
+    ))
+    setSel(prev =>
+      prev?.id === managerNodeId ? { ...prev, data: applyAdd(prev.data as D) } : prev
+    )
+  }, [managerNodeId, setNodes])
+
+  const managerActiveCasList = useMemo(() => {
+    if (!sel || sel.id !== managerNodeId) return []
+    const comp = (sel.data as D).composition as Record<string, number> | undefined
+    return Object.keys(comp ?? {})
+  }, [sel, managerNodeId])
 
   // ── Node deletion ─────────────────────────────────────────────────────────
 
@@ -1201,6 +1187,7 @@ function Canvas({ simId }: { simId: string }) {
                 onClose={() => setSel(null)}
                 onDelete={deleteNode}
                 projectId={projectId}
+                onBrowse={id => setManagerNodeId(id)}
                 onOpenControlStudio={
                   (sel.data as D).nodeType === 'cstr'
                     ? () => { setControlStudioNodeId(sel.id); setSel(null) }
@@ -1248,6 +1235,16 @@ function Canvas({ simId }: { simId: string }) {
         </div>
 
       </div>
+
+      {/* Component library — rendered at top level to avoid stale-closure issues */}
+      {managerNodeId && (
+        <ComponentManager
+          projectId={projectId}
+          activeCasList={managerActiveCasList}
+          onAdd={handleAddComponent}
+          onClose={() => setManagerNodeId(null)}
+        />
+      )}
     </div>
   )
 }
