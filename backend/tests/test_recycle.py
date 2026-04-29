@@ -51,7 +51,7 @@ from app.core.unit_ops import ConvergenceError, SimulationError
 
 def _feed_node(node_id: str, **data_overrides) -> dict:
     data = {
-        "composition": {"benzene": 1.0},
+        "composition": {"71-43-2": 1.0},
         "temperature_C": 25.0,
         "pressure_bar": 1.0,
         "flow_mol_s": 1.0,
@@ -77,7 +77,7 @@ def _recycle_flowsheet(recycle_fraction: float = 0.2):
         _feed_node("N_feed"),
         _node("N_mixer",    "mixer"),
         _node("N_pfr",      "pfr",
-              stoichiometry={"benzene": -1.0, "toluene": 1.0},
+              stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
               conversion=0.8,
               delta_Hrxn_J_mol=0.0),
         _node("N_splitter", "splitter",
@@ -158,21 +158,21 @@ class TestRecycleConvergence:
         """z_A = 1/6 at steady state."""
         nodes, edges = _recycle_flowsheet()
         result = FlowsheetSolver(nodes, edges).solve()
-        z_A = result["streams"]["E_product"]["composition"]["benzene"]
+        z_A = result["streams"]["E_product"]["composition"]["71-43-2"]
         assert z_A == pytest.approx(1.0 / 6.0, rel=1e-3)
 
     def test_product_toluene_fraction_analytical(self):
         """z_B = 5/6 at steady state."""
         nodes, edges = _recycle_flowsheet()
         result = FlowsheetSolver(nodes, edges).solve()
-        z_B = result["streams"]["E_product"]["composition"]["toluene"]
+        z_B = result["streams"]["E_product"]["composition"]["108-88-3"]
         assert z_B == pytest.approx(5.0 / 6.0, rel=1e-3)
 
     def test_overall_conversion_greater_than_single_pass(self):
         """Recycle boosts overall conversion above the per-pass 80 %."""
         nodes, edges = _recycle_flowsheet()
         result = FlowsheetSolver(nodes, edges).solve()
-        z_A = result["streams"]["E_product"]["composition"]["benzene"]
+        z_A = result["streams"]["E_product"]["composition"]["71-43-2"]
         overall_conversion = 1.0 - z_A   # pure-benzene fresh feed
         assert overall_conversion > 0.80
 
@@ -218,8 +218,8 @@ class TestRecycleConvergence:
         res_20 = FlowsheetSolver(nodes_20, edges_20).solve()
         res_40 = FlowsheetSolver(nodes_40, edges_40).solve()
 
-        z_A_20 = res_20["streams"]["E_product"]["composition"]["benzene"]
-        z_A_40 = res_40["streams"]["E_product"]["composition"]["benzene"]
+        z_A_20 = res_20["streams"]["E_product"]["composition"]["71-43-2"]
+        z_A_40 = res_40["streams"]["E_product"]["composition"]["71-43-2"]
         assert z_A_40 < z_A_20   # lower benzene fraction = higher conversion
 
     def test_acyclic_result_has_convergence_info(self):
@@ -238,7 +238,7 @@ class TestRecycleConvergence:
             _feed_node("N_feed"),
             _node("N_mixer",    "mixer"),
             _node("N_pfr",      "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.8,
                   delta_Hrxn_J_mol=0.0),
             _node("N_splitter", "splitter", fractions=[0.8, 0.2]),
@@ -255,7 +255,7 @@ class TestRecycleConvergence:
         ]
         result = FlowsheetSolver(nodes, edges).solve()
         assert result["convergence_info"]["converged"] is True
-        z_A = result["streams"]["E_product"]["composition"]["benzene"]
+        z_A = result["streams"]["E_product"]["composition"]["71-43-2"]
         assert z_A == pytest.approx(1.0 / 6.0, rel=1e-2)
 
     def test_recycle_node_estimate_accepted(self):
@@ -264,7 +264,7 @@ class TestRecycleConvergence:
             _feed_node("N_feed"),
             _node("N_mixer",    "mixer"),
             _node("N_pfr",      "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.8,
                   delta_Hrxn_J_mol=0.0),
             _node("N_splitter", "splitter", fractions=[0.8, 0.2]),
@@ -275,7 +275,7 @@ class TestRecycleConvergence:
                         "temperature_C": 25.0,
                         "pressure_bar":  1.0,
                         "flow_mol_s":    0.25,
-                        "composition":   {"benzene": 0.17, "toluene": 0.83},
+                        "composition":   {"71-43-2": 0.17, "108-88-3": 0.83},
                     }
                 },
                 "position": {"x": 0, "y": 0},

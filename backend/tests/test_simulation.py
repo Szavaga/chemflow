@@ -18,20 +18,21 @@ from app.core.simulation import (
 class TestChemComponent:
     def test_vapor_pressure_water_100c(self):
         """Water at 100 °C should give ~1.013 bar (1 atm)."""
-        water = COMPONENT_LIBRARY["water"]
+        water = COMPONENT_LIBRARY["7732-18-5"]
         p = water.vapor_pressure(100.0)
         assert abs(p - 1.013) < 0.05, f"Expected ~1.013 bar, got {p:.4f}"
 
     def test_vapor_pressure_increases_with_temperature(self):
-        benzene = COMPONENT_LIBRARY["benzene"]
+        benzene = COMPONENT_LIBRARY["71-43-2"]
         p60 = benzene.vapor_pressure(60.0)
         p80 = benzene.vapor_pressure(80.0)
         assert p80 > p60
 
-    def test_all_components_present(self):
-        expected = {"benzene", "toluene", "ethanol", "water",
-                    "methanol", "acetone", "n_hexane", "n_heptane"}
-        assert expected == set(COMPONENT_LIBRARY.keys())
+    def test_all_components_keyed_by_cas(self):
+        # All keys should be CAS-format strings (contain hyphens)
+        expected_cas = {"71-43-2", "108-88-3", "64-17-5", "7732-18-5",
+                        "67-56-1", "67-64-1", "110-54-3", "142-82-5"}
+        assert expected_cas.issubset(set(COMPONENT_LIBRARY.keys()))
 
 
 # ── Flash Drum ─────────────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ class TestFlashDrum:
         # 50/50 benzene/toluene bubble point ≈ 92 °C at 1 bar;
         # use 95 °C to sit firmly in the two-phase envelope.
         return FlashInput(
-            components=["benzene", "toluene"],
+            components=["71-43-2", "108-88-3"],
             feed_flow=100.0,
             feed_composition=z or [0.5, 0.5],
             temperature=T,
@@ -86,7 +87,7 @@ class TestFlashDrum:
     def test_unknown_component_raises_key_error(self):
         with pytest.raises(KeyError):
             simulate_flash(FlashInput(
-                components=["benzene", "unobtainium"],
+                components=["71-43-2", "unobtainium"],
                 feed_flow=1.0,
                 feed_composition=[0.5, 0.5],
                 temperature=80,
@@ -95,7 +96,7 @@ class TestFlashDrum:
 
     def test_multicomponent_three_species(self):
         r = simulate_flash(FlashInput(
-            components=["benzene", "toluene", "n_hexane"],
+            components=["71-43-2", "108-88-3", "110-54-3"],
             feed_flow=1.0,
             feed_composition=[1 / 3, 1 / 3, 1 / 3],
             temperature=70,

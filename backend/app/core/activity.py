@@ -36,17 +36,17 @@ import numpy as np
 # Note  : both ordered pairs must be present; Λ_ij ≠ Λ_ji in general.
 
 WILSON_PARAMS: dict[tuple[str, str], float] = {
-    # Ethanol – Water  (azeotrope at ~78.2 °C, 89.4 mol% EtOH)
-    ("ethanol", "water"):  0.7248,
-    ("water",  "ethanol"): 0.3154,
+    # Ethanol (64-17-5) – Water (7732-18-5)  (azeotrope at ~78.2 °C, 89.4 mol% EtOH)
+    ("64-17-5",   "7732-18-5"): 0.7248,
+    ("7732-18-5", "64-17-5"):   0.3154,
 
-    # Methanol – Water
-    ("methanol", "water"):  0.5680,
-    ("water",  "methanol"): 0.4778,
+    # Methanol (67-56-1) – Water (7732-18-5)
+    ("67-56-1",   "7732-18-5"): 0.5680,
+    ("7732-18-5", "67-56-1"):   0.4778,
 
-    # Acetone – Water
-    ("acetone", "water"):  0.3575,
-    ("water",  "acetone"): 0.2595,
+    # Acetone (67-64-1) – Water (7732-18-5)
+    ("67-64-1",   "7732-18-5"): 0.3575,
+    ("7732-18-5", "67-64-1"):   0.2595,
 }
 
 

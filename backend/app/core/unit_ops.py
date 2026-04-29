@@ -888,9 +888,8 @@ class DistillationShortcut:
             )
         feed = inlets[0]
 
-        from app.core.simulation import CAS_LOOKUP
-        lk_id = CAS_LOOKUP.get(light_key, light_key)
-        hk_id = CAS_LOOKUP.get(heavy_key, heavy_key)
+        lk_id = light_key
+        hk_id = heavy_key
 
         comps = list(feed.composition)
         z = dict(feed.composition)

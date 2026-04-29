@@ -65,152 +65,104 @@ class ChemComponent:
 
 
 COMPONENT_LIBRARY: dict[str, ChemComponent] = {
-    "benzene": ChemComponent(
+    "71-43-2": ChemComponent(
         "Benzene", 78.11, 562.2, 48.9, 0.212,
         6.90565, 1211.033, 220.790,
     ),
-    "toluene": ChemComponent(
+    "108-88-3": ChemComponent(
         "Toluene", 92.14, 591.8, 41.1, 0.263,
         6.95464, 1344.800, 219.482,
     ),
-    "ethanol": ChemComponent(
+    "64-17-5": ChemComponent(
         "Ethanol", 46.07, 513.9, 61.4, 0.644,
         8.04494, 1554.300, 222.650,
     ),
-    "water": ChemComponent(
+    "7732-18-5": ChemComponent(
         "Water", 18.02, 647.1, 220.6, 0.345,
         8.07131, 1730.630, 233.426,
         tmin_C=0.0, tmax_C=200.0,
     ),
-    "methanol": ChemComponent(
+    "67-56-1": ChemComponent(
         "Methanol", 32.04, 512.6, 80.97, 0.565,
         7.87863, 1473.110, 230.000,
     ),
-    "acetone": ChemComponent(
+    "67-64-1": ChemComponent(
         "Acetone", 58.08, 508.2, 47.0, 0.307,
         7.02447, 1161.000, 224.000,
     ),
-    "n_hexane": ChemComponent(
+    "110-54-3": ChemComponent(
         "n-Hexane", 86.18, 507.6, 30.25, 0.301,
         6.87601, 1171.170, 224.408,
     ),
-    "n_heptane": ChemComponent(
+    "142-82-5": ChemComponent(
         "n-Heptane", 100.2, 540.3, 27.40, 0.349,
         6.89585, 1264.370, 216.640,
     ),
-    "methane": ChemComponent(
+    "74-82-8": ChemComponent(
         "Methane", 16.04, 190.6, 46.1, 0.011,
         6.61184, 389.930, 266.696,
     ),
-    "ethane": ChemComponent(
+    "74-84-0": ChemComponent(
         "Ethane", 30.07, 305.3, 48.7, 0.099,
         6.80896, 663.720, 256.681,
     ),
-    "propane": ChemComponent(
+    "74-98-6": ChemComponent(
         "Propane", 44.10, 369.8, 42.5, 0.152,
         6.82973, 813.200, 248.097,
     ),
-    "n_butane": ChemComponent(
+    "106-97-8": ChemComponent(
         "n-Butane", 58.12, 425.1, 38.0, 0.200,
         6.82485, 943.453, 239.711,
     ),
-    "isobutane": ChemComponent(
+    "75-28-5": ChemComponent(
         "Isobutane", 58.12, 408.2, 36.5, 0.181,
         6.78866, 882.800, 240.000,
     ),
-    "n_pentane": ChemComponent(
+    "109-66-0": ChemComponent(
         "n-Pentane", 72.15, 469.7, 33.7, 0.251,
         6.85221, 1064.630, 232.000,
     ),
-    "isopentane": ChemComponent(
+    "78-78-4": ChemComponent(
         "Isopentane", 72.15, 460.4, 33.8, 0.227,
         6.78967, 1020.012, 233.097,
     ),
-    "cyclohexane": ChemComponent(
+    "110-82-7": ChemComponent(
         "Cyclohexane", 84.16, 553.6, 40.7, 0.212,
         6.84498, 1203.526, 222.863,
     ),
-    "hydrogen": ChemComponent(
+    "1333-74-0": ChemComponent(
         "Hydrogen", 2.016, 33.2, 13.0, -0.216,
         5.82800, 181.000, 265.700,
     ),
-    "nitrogen": ChemComponent(
+    "7727-37-9": ChemComponent(
         "Nitrogen", 28.01, 126.2, 34.0, 0.040,
         6.49457, 255.680, 266.550,
     ),
-    "carbon_dioxide": ChemComponent(
+    "124-38-9": ChemComponent(
         "Carbon Dioxide", 44.01, 304.1, 73.8, 0.225,
         6.81228, 1301.679, 272.200,
     ),
-    "hydrogen_sulfide": ChemComponent(
+    "7783-06-4": ChemComponent(
         "Hydrogen Sulfide", 34.08, 373.2, 90.1, 0.090,
         7.05267, 1012.490, 247.100,
     ),
-    "acetic_acid": ChemComponent(
+    "64-19-7": ChemComponent(
         "Acetic Acid", 60.05, 592.7, 57.9, 0.467,
         7.38782, 1533.313, 222.309,
     ),
-    "chloroform": ChemComponent(
+    "67-66-3": ChemComponent(
         "Chloroform", 119.38, 536.4, 54.7, 0.218,
         6.90328, 1163.000, 227.400,
     ),
-    "diethyl_ether": ChemComponent(
+    "60-29-7": ChemComponent(
         "Diethyl Ether", 74.12, 466.7, 36.4, 0.281,
         6.92032, 1064.070, 228.799,
     ),
-    "xylene": ChemComponent(
+    "106-42-3": ChemComponent(
         "p-Xylene", 106.17, 616.2, 35.1, 0.322,
         6.99052, 1453.430, 215.307,
     ),
 }
-
-
-# ── CAS-number → component-key lookup ────────────────────────────────────────
-# Used by the flowsheet solver to accept CAS numbers in stream compositions
-# (stored by the frontend) and translate them to COMPONENT_LIBRARY keys.
-
-CAS_LOOKUP: dict[str, str] = {
-    "71-43-2":   "benzene",
-    "108-88-3":  "toluene",
-    "64-17-5":   "ethanol",
-    "7732-18-5": "water",
-    "67-56-1":   "methanol",
-    "67-64-1":   "acetone",
-    "110-54-3":  "n_hexane",
-    "142-82-5":  "n_heptane",
-    "74-82-8":   "methane",
-    "74-84-0":   "ethane",
-    "74-98-6":   "propane",
-    "106-97-8":  "n_butane",
-    "75-28-5":   "isobutane",
-    "109-66-0":  "n_pentane",
-    "78-78-4":   "isopentane",
-    "110-82-7":  "cyclohexane",
-    "1333-74-0": "hydrogen",
-    "7727-37-9": "nitrogen",
-    "124-38-9":  "carbon_dioxide",
-    "7783-06-4": "hydrogen_sulfide",
-    "64-19-7":   "acetic_acid",
-    "67-66-3":   "chloroform",
-    "60-29-7":   "diethyl_ether",
-    "106-42-3":  "xylene",   # p-xylene
-}
-
-
-CAS_REVERSE_LOOKUP: dict[str, str] = {v: k for k, v in CAS_LOOKUP.items()}
-
-
-def resolve_composition(composition: dict[str, float]) -> dict[str, float]:
-    """Translate any CAS-keyed composition entries to COMPONENT_LIBRARY keys.
-
-    Keys that are already component-library names pass through unchanged.
-    Unknown keys are preserved as-is (the solver will raise SimulationError
-    for truly unrecognised components).
-    """
-    resolved: dict[str, float] = {}
-    for key, frac in composition.items():
-        resolved[CAS_LOOKUP.get(key, key)] = frac
-    return resolved
 
 
 # ── Flash Drum ─────────────────────────────────────────────────────────────────

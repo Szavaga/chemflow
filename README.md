@@ -16,6 +16,10 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 
 ### 2026-04-29
 - **Fix: Feed component addition** — rebuilt the Component Library integration so clicking "Add" in the browser modal reliably updates the feed composition. The `ComponentManager` is now rendered at the top of the canvas component tree and uses functional state updates (`setNodes` / `setSel`) to avoid stale-closure bugs that caused silent no-ops when adding components. Component display names are now lazily fetched per CAS key instead of eagerly pre-loading 100 records.
+- **CAS-keyed compositions end-to-end** — `COMPONENT_LIBRARY`, thermodynamic property tables (`_EXTRA`), Wilson binary interaction parameters, and Peng-Robinson kij lookup are all now keyed by CAS Registry Number (e.g. `"64-17-5"`) instead of internal name strings (e.g. `"ethanol"`). The `CAS_LOOKUP`, `CAS_REVERSE_LOOKUP`, and `resolve_composition()` translation shim is removed; the frontend and backend now speak the same key format throughout.
+- **PFR auto-stoichiometry** — if a PFR node has no explicit `stoichiometry` dict the solver automatically constructs `{reactant: -1.0, product_comp: +1.0}` from the node's `reactant` and `product_comp` fields, matching the UI form fields. The solver also registers these CAS keys as recognised components.
+- **Docker reliability** — `pip install` in the backend Dockerfile now passes `--timeout=300` to avoid failures on slow network connections.
+- **Docker Compose networking** — Vite dev-server proxy target changed from `http://localhost:8000` to `http://backend:8000` so the frontend container can reach the backend service by its Compose service name.
 
 ## Unit operations
 
@@ -69,7 +73,7 @@ Global components are **read-only**. Engineers can add project-scoped **custom c
 The Flash Drum node exposes a **Property package** dropdown with two options:
 
 **Ideal (Raoult's Law)** *(default)*  
-K_i = γ_i · VP_i(T) / P using the Wilson activity coefficient model. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water, methanol/water, and acetone/water. All other pairs default to Λ_ij = 1 (Raoult's law). Successive substitution converges on max relative K-change < 1 × 10⁻⁶.
+K_i = γ_i · VP_i(T) / P using the Wilson activity coefficient model. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water (`64-17-5`/`7732-18-5`), methanol/water (`67-56-1`/`7732-18-5`), and acetone/water (`67-64-1`/`7732-18-5`). Parameters are keyed by CAS number so they apply automatically regardless of how a component was named. All other pairs default to Λ_ij = 1 (Raoult's law). Successive substitution converges on max relative K-change < 1 × 10⁻⁶.
 
 **Peng-Robinson EoS**  
 Full cubic equation of state VLE. K-values are initialised from the Wilson K-value correlation (K_i = Pc_i/P · exp(5.373(1+ω_i)(1−Tc_i/T))) and then iterated via fugacity coefficients:

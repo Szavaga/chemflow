@@ -84,7 +84,6 @@ from app.core.unit_ops import (
     Splitter,
     Stream,
 )
-from app.core.simulation import resolve_composition
 
 NodeDict = dict[str, Any]
 EdgeDict = dict[str, Any]
@@ -706,6 +705,10 @@ class FlowsheetSolver:
             data = node.get("data", {})
             components.update(data.get("composition", {}).keys())
             components.update(data.get("stoichiometry", {}).keys())
+            for field in ("reactant", "product_comp"):
+                val = data.get(field, "")
+                if val:
+                    components.add(str(val))
         return sorted(components)
 
     # ── Unit-op dispatch ──────────────────────────────────────────────────────
@@ -759,9 +762,15 @@ class FlowsheetSolver:
             )
 
         if node_type == "pfr":
+            stoich = data.get("stoichiometry", {})
+            if not stoich:
+                reactant = str(data.get("reactant", ""))
+                product  = str(data.get("product_comp", ""))
+                if reactant and product:
+                    stoich = {reactant: -1.0, product: 1.0}
             return PFR().solve(
                 inlets,
-                stoichiometry=data.get("stoichiometry", {}),
+                stoichiometry=stoich,
                 conversion=float(data.get("conversion", 0.8)),
                 delta_Hrxn_J_mol=float(data.get("delta_Hrxn_J_mol", 0.0)),
                 outlet_name=f"{node_id}_out",
@@ -831,7 +840,6 @@ class FlowsheetSolver:
             raise SimulationError(
                 f"Feed node '{node_id}' has no 'composition' in its data dict"
             )
-        composition = resolve_composition(composition)
         try:
             stream = Stream(
                 name=data.get("label", f"feed_{node_id}"),

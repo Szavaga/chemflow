@@ -42,7 +42,7 @@ def _feed(nid: str, flow=1.0, composition=None, T=25.0, P=1.0) -> dict:
         "id": nid, "type": "feed",
         "position": {"x": 0, "y": 0},
         "data": {
-            "composition":  composition or {"benzene": 1.0},
+            "composition":  composition or {"71-43-2": 1.0},
             "flow_mol_s":   flow,
             "temperature_C": T,
             "pressure_bar":  P,
@@ -169,10 +169,10 @@ class TestSimpleRecycle:
     @staticmethod
     def _build(recycle_fraction: float = 0.4):
         nodes = [
-            _feed("N_feed", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mixer",   "mixer"),
             _node("N_pfr",     "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.7,
                   delta_Hrxn_J_mol=0.0),
             _node("N_split",   "splitter",
@@ -217,14 +217,14 @@ class TestSimpleRecycle:
         """X_overall = 0.7 / (1 - 0.4*0.3) ≈ 0.7955."""
         nodes, edges = self._build()
         result = FlowsheetSolver(nodes, edges).solve()
-        z_A = result["streams"]["E_product"]["composition"]["benzene"]
+        z_A = result["streams"]["E_product"]["composition"]["71-43-2"]
         # Product benzene fraction = F_A_prod / F_total = 0.2045
         assert z_A == pytest.approx(0.2045, rel=2e-2)
 
     def test_overall_conversion_exceeds_single_pass(self):
         nodes, edges = self._build()
         result = FlowsheetSolver(nodes, edges).solve()
-        z_A = result["streams"]["E_product"]["composition"]["benzene"]
+        z_A = result["streams"]["E_product"]["composition"]["71-43-2"]
         overall = 1.0 - z_A
         assert overall > 0.70
 
@@ -280,17 +280,17 @@ class TestNestedLoops:
     @staticmethod
     def _build():
         nodes = [
-            _feed("N_feed_A", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed_A", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mixer_A",  "mixer"),
             _node("N_pfr_A",    "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.6, delta_Hrxn_J_mol=0.0),
             _node("N_split_A",  "splitter", fractions=[0.7, 0.3]),
             _node("N_prod_A",   "product"),
-            _feed("N_feed_B", flow=1.0, composition={"methane": 1.0}),
+            _feed("N_feed_B", flow=1.0, composition={"74-82-8": 1.0}),
             _node("N_mixer_B",  "mixer"),
             _node("N_pfr_B",    "pfr",
-                  stoichiometry={"methane": -1.0, "ethane": 1.0},
+                  stoichiometry={"74-82-8": -1.0, "74-84-0": 1.0},
                   conversion=0.5, delta_Hrxn_J_mol=0.0),
             _node("N_split_B",  "splitter", fractions=[0.7, 0.3]),
             _node("N_prod_B",   "product"),
@@ -343,7 +343,7 @@ class TestNestedLoops:
         nodes, edges = self._build()
         result = FlowsheetSolver(nodes, edges).solve()
         comp_a = result["streams"]["E_prodA"]["composition"]
-        assert "methane" not in comp_a or comp_a.get("methane", 0.0) < 1e-9
+        assert "74-82-8" not in comp_a or comp_a.get("74-82-8", 0.0) < 1e-9
 
     def test_scc_ordering_is_independent(self):
         """If we reverse the order of edges, the result should be the same."""
@@ -351,8 +351,8 @@ class TestNestedLoops:
         edges_rev = list(reversed(edges))
         r1 = FlowsheetSolver(nodes, edges).solve()
         r2 = FlowsheetSolver(nodes, edges_rev).solve()
-        z_A1 = r1["streams"]["E_prodA"]["composition"].get("benzene", 0)
-        z_A2 = r2["streams"]["E_prodA"]["composition"].get("benzene", 0)
+        z_A1 = r1["streams"]["E_prodA"]["composition"].get("71-43-2", 0)
+        z_A2 = r2["streams"]["E_prodA"]["composition"].get("71-43-2", 0)
         assert z_A1 == pytest.approx(z_A2, rel=1e-4)
 
 
@@ -374,10 +374,10 @@ class TestSlowConvergenceFallback:
     @staticmethod
     def _build():
         nodes = [
-            _feed("N_feed", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mixer",   "mixer"),
             _node("N_pfr",     "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.7, delta_Hrxn_J_mol=0.0),
             _node("N_split",   "splitter", fractions=[0.05, 0.95]),
             _node("N_product", "product"),
@@ -415,7 +415,7 @@ class TestSlowConvergenceFallback:
         """With 95 % recycle overall conversion should be above 0.90."""
         nodes, edges = self._build()
         result = FlowsheetSolver(nodes, edges).solve()
-        z_A = result["streams"]["E_product"]["composition"].get("benzene", 0.0)
+        z_A = result["streams"]["E_product"]["composition"].get("71-43-2", 0.0)
         assert (1.0 - z_A) > 0.90
 
     def test_slow_convergence_warning_possible(self):
@@ -452,10 +452,10 @@ class TestDivergenceDetection:
         monkeypatch.setattr(solver_mod, "_MAX_RECYCLE_ITER", 3)
 
         nodes = [
-            _feed("N_feed", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mixer",   "mixer"),
             _node("N_pfr",     "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.7, delta_Hrxn_J_mol=0.0),
             _node("N_split",   "splitter", fractions=[0.05, 0.95]),
             _node("N_product", "product"),
@@ -479,10 +479,10 @@ class TestDivergenceDetection:
         monkeypatch.setattr(solver_mod, "_MAX_RECYCLE_ITER", 2)
 
         nodes = [
-            _feed("N_feed", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mixer",   "mixer"),
             _node("N_pfr",     "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.5, delta_Hrxn_J_mol=0.0),
             _node("N_split",   "splitter", fractions=[0.1, 0.9]),
             _node("N_product", "product"),
@@ -505,10 +505,10 @@ class TestDivergenceDetection:
         monkeypatch.setattr(solver_mod, "_MAX_RECYCLE_ITER", 2)
 
         nodes = [
-            _feed("N_feed", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mixer", "mixer"),
             _node("N_pfr",   "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.5, delta_Hrxn_J_mol=0.0),
             _node("N_split", "splitter", fractions=[0.1, 0.9]),
             _node("N_prod",  "product"),
@@ -531,10 +531,10 @@ class TestDivergenceDetection:
         monkeypatch.setattr(solver_mod, "_MAX_RECYCLE_ITER", 1)
 
         nodes = [
-            _feed("N_feed", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mix", "mixer"),
             _node("N_pfr", "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.5, delta_Hrxn_J_mol=0.0),
             _node("N_spl", "splitter", fractions=[0.1, 0.9]),
             _node("N_prd", "product"),
@@ -560,10 +560,10 @@ class TestTearStreamHeuristics:
         """When one edge has a recycle-node estimate with a lower flow, it is
         selected as the tear stream."""
         nodes = [
-            _feed("N_feed", flow=1.0, composition={"benzene": 1.0}),
+            _feed("N_feed", flow=1.0, composition={"71-43-2": 1.0}),
             _node("N_mixer",   "mixer"),
             _node("N_pfr",     "pfr",
-                  stoichiometry={"benzene": -1.0, "toluene": 1.0},
+                  stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
                   conversion=0.8, delta_Hrxn_J_mol=0.0),
             _node("N_split",   "splitter", fractions=[0.8, 0.2]),
             {

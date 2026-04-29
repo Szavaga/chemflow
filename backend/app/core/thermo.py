@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from app.core.simulation import CAS_REVERSE_LOOKUP, COMPONENT_LIBRARY
+from app.core.simulation import COMPONENT_LIBRARY
 
 
 # ── Thermodynamic exception types ─────────────────────────────────────────────
@@ -35,34 +35,34 @@ class MissingPropertyError(ValueError):
 # Sources: NIST WebBook, Perry's Chemical Engineers' Handbook (8th ed.)
 # ---------------------------------------------------------------------------
 _EXTRA: dict[str, tuple[float, float, float, float]] = {
-    #             Cp_liq   Cp_ig  delta_Hvap  rho_liq
-    "benzene":   (136.0,   82.4,   30_720.0,   879.0),
-    "toluene":   (157.0,  104.0,   33_180.0,   867.0),
-    "ethanol":   (112.0,   65.3,   38_600.0,   789.0),
-    "water":     ( 75.3,   33.6,   40_650.0,   997.0),
-    "methanol":  ( 81.0,   43.9,   35_270.0,   791.0),
-    "acetone":   (125.0,   74.9,   29_100.0,   791.0),
-    "n_hexane":  (195.0,  143.1,   28_850.0,   659.0),
-    "n_heptane": (224.0,  165.9,   31_770.0,   684.0),
+    #                Cp_liq   Cp_ig  delta_Hvap  rho_liq
+    "71-43-2":   (136.0,   82.4,   30_720.0,   879.0),   # benzene
+    "108-88-3":  (157.0,  104.0,   33_180.0,   867.0),   # toluene
+    "64-17-5":   (112.0,   65.3,   38_600.0,   789.0),   # ethanol
+    "7732-18-5": ( 75.3,   33.6,   40_650.0,   997.0),   # water
+    "67-56-1":   ( 81.0,   43.9,   35_270.0,   791.0),   # methanol
+    "67-64-1":   (125.0,   74.9,   29_100.0,   791.0),   # acetone
+    "110-54-3":  (195.0,  143.1,   28_850.0,   659.0),   # n-hexane
+    "142-82-5":  (224.0,  165.9,   31_770.0,   684.0),   # n-heptane
     # Light hydrocarbons / gases (properties at/near normal boiling point)
-    "methane":         ( 54.0,   35.7,    8_190.0,   422.0),
-    "ethane":          ( 68.5,   52.5,   14_720.0,   546.0),
-    "propane":         ( 96.2,   73.6,   15_700.0,   493.0),
-    "n_butane":        (140.9,   97.5,   22_390.0,   579.0),
-    "isobutane":       (130.5,   96.7,   21_300.0,   551.0),
-    "n_pentane":       (167.2,  120.2,   25_770.0,   626.0),
-    "isopentane":      (164.8,  118.9,   24_690.0,   620.0),
-    "cyclohexane":     (156.0,  106.3,   29_970.0,   779.0),
+    "74-82-8":   ( 54.0,   35.7,    8_190.0,   422.0),   # methane
+    "74-84-0":   ( 68.5,   52.5,   14_720.0,   546.0),   # ethane
+    "74-98-6":   ( 96.2,   73.6,   15_700.0,   493.0),   # propane
+    "106-97-8":  (140.9,   97.5,   22_390.0,   579.0),   # n-butane
+    "75-28-5":   (130.5,   96.7,   21_300.0,   551.0),   # isobutane
+    "109-66-0":  (167.2,  120.2,   25_770.0,   626.0),   # n-pentane
+    "78-78-4":   (164.8,  118.9,   24_690.0,   620.0),   # isopentane
+    "110-82-7":  (156.0,  106.3,   29_970.0,   779.0),   # cyclohexane
     # Permanent gases
-    "hydrogen":        ( 29.1,   28.8,      904.0,    71.0),
-    "nitrogen":        ( 56.0,   29.1,    5_570.0,   809.0),
-    "carbon_dioxide":  ( 37.1,   37.1,   15_326.0,   770.0),
-    "hydrogen_sulfide":( 78.0,   34.2,   18_680.0,   993.0),
+    "1333-74-0": ( 29.1,   28.8,      904.0,    71.0),   # hydrogen
+    "7727-37-9": ( 56.0,   29.1,    5_570.0,   809.0),   # nitrogen
+    "124-38-9":  ( 37.1,   37.1,   15_326.0,   770.0),   # carbon dioxide
+    "7783-06-4": ( 78.0,   34.2,   18_680.0,   993.0),   # hydrogen sulfide
     # Other common solvents / process chemicals
-    "acetic_acid":     (123.0,   66.5,   23_700.0,  1049.0),
-    "chloroform":      (116.0,   65.7,   29_240.0,  1489.0),
-    "diethyl_ether":   (172.0,  112.0,   26_520.0,   713.0),
-    "xylene":          (181.5,  128.0,   36_800.0,   861.0),
+    "64-19-7":   (123.0,   66.5,   23_700.0,  1049.0),   # acetic acid
+    "67-66-3":   (116.0,   65.7,   29_240.0,  1489.0),   # chloroform
+    "60-29-7":   (172.0,  112.0,   26_520.0,   713.0),   # diethyl ether
+    "106-42-3":  (181.5,  128.0,   36_800.0,   861.0),   # p-xylene
 }
 
 # Fallback for any component not in _EXTRA (generic organic liquid-like values).
@@ -214,10 +214,8 @@ class PengRobinson:
                 return kij
             for i in range(n):
                 for j in range(i + 1, n):
-                    cas_i = CAS_REVERSE_LOOKUP.get(components[i], "")
-                    cas_j = CAS_REVERSE_LOOKUP.get(components[j], "")
-                    if not cas_i or not cas_j:
-                        continue
+                    cas_i = components[i]
+                    cas_j = components[j]
                     key = f"{min(cas_i, cas_j)} {max(cas_i, cas_j)}"
                     row = tbl.get(key)
                     if row is not None:

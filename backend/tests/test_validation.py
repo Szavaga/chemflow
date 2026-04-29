@@ -4,7 +4,7 @@ Phase 2 validation checklist — seven acceptance tests.
 from __future__ import annotations
 import pytest
 from app.core.exceptions import ThermodynamicRangeError
-from app.core.simulation import COMPONENT_LIBRARY, CAS_LOOKUP
+from app.core.simulation import COMPONENT_LIBRARY
 from app.core.unit_ops import DistillationShortcut, Flash, SimulationError, Stream
 from app.core.flowsheet_solver import FlowsheetSolver
 from app.core.context_builder import build_prompt_context
@@ -13,9 +13,10 @@ from app.core.context_builder import build_prompt_context
 # ── 1. Feed CAS resolution ────────────────────────────────────────────────────
 
 class TestFeedCasResolution:
-    def test_cas_keys_resolve_to_library_components(self):
-        for cas, comp_id in CAS_LOOKUP.items():
-            assert comp_id in COMPONENT_LIBRARY
+    def test_component_library_keyed_by_cas(self):
+        # All keys should look like CAS numbers (digits and hyphens only)
+        for key in COMPONENT_LIBRARY:
+            assert "-" in key, f"Expected CAS key, got: {key!r}"
 
     def test_feed_node_with_cas_composition(self):
         nodes = [
@@ -35,18 +36,20 @@ class TestFeedCasResolution:
         stream = result["streams"]["e1"]
         assert abs(stream["flow"] - 2.0) < 1e-9
         comp = stream["composition"]
-        assert "benzene" in comp and "toluene" in comp
-        assert abs(comp["benzene"] - 0.5) < 1e-6
+        assert "71-43-2" in comp and "108-88-3" in comp
+        assert abs(comp["71-43-2"] - 0.5) < 1e-6
 
-    def test_all_cas_entries_are_distinct(self):
-        assert len(CAS_LOOKUP) == len(set(CAS_LOOKUP.keys()))
+    def test_all_cas_keys_are_distinct(self):
+        keys = list(COMPONENT_LIBRARY.keys())
+        assert len(keys) == len(set(keys))
 
 
 # ── 2. Flash PR — ethane/propane VLE ─────────────────────────────────────────
 
 class TestFlashPR:
     def _feed(self):
-        return Stream("feed", 26.85, 20.0, 1.0, {"ethane": 0.5, "propane": 0.5}, 0.0)
+        return Stream("feed", 26.85, 20.0, 1.0,
+                      {"74-84-0": 0.5, "74-98-6": 0.5}, 0.0)  # ethane, propane
 
     def test_pr_flash_converges(self):
         feed = self._feed()
@@ -63,7 +66,7 @@ class TestFlashPR:
             property_package="peng_robinson",
         )
         K = summary["K_values"]
-        assert K["ethane"] > K["propane"]
+        assert K["74-84-0"] > K["74-98-6"]  # ethane more volatile than propane
 
     def test_pr_vs_ideal_within_10_pct(self):
         feed = self._feed()
@@ -89,7 +92,7 @@ class TestRecycleCSTR:
     def _build(self):
         nodes = [
             {"id": "feed", "type": "feed", "data": {
-                "composition": {"ethanol": 1.0}, "flow_mol_s": 1.0,
+                "composition": {"64-17-5": 1.0}, "flow_mol_s": 1.0,
                 "temperature_C": 25.0, "pressure_bar": 1.0,
             }},
             {"id": "mix", "type": "mixer", "data": {}},
@@ -101,7 +104,7 @@ class TestRecycleCSTR:
             {"id": "split", "type": "splitter", "data": {"fractions": [0.7, 0.3]}},
             {"id": "prod", "type": "product", "data": {}},
             {"id": "recycle", "type": "recycle", "data": {
-                "estimate": {"composition": {"ethanol": 1.0}, "flow_mol_s": 0.43,
+                "estimate": {"composition": {"64-17-5": 1.0}, "flow_mol_s": 0.43,
                              "temperature_C": 76.85, "pressure_bar": 1.0}
             }},
         ]
@@ -137,11 +140,11 @@ class TestRecycleCSTR:
 class TestDistillationFUG:
     def _feed(self):
         return Stream("btx", 100.0, 1.013, 1.0,
-                      {"benzene": 0.40, "toluene": 0.30, "xylene": 0.30}, 0.0)
+                      {"71-43-2": 0.40, "108-88-3": 0.30, "106-42-3": 0.30}, 0.0)
 
     def test_btx_N_actual_within_2_of_textbook(self):
         _, s = DistillationShortcut().solve(
-            [self._feed()], light_key="toluene", heavy_key="xylene",
+            [self._feed()], light_key="108-88-3", heavy_key="106-42-3",
             lk_recovery=0.99, hk_recovery=0.99, reflux_ratio=2.0,
             property_package="ideal", q=1.0,
             distillate_name="dist", bottoms_name="bot",
@@ -151,22 +154,22 @@ class TestDistillationFUG:
     def test_btx_lk_recovery(self):
         feed = self._feed()
         outlets, _ = DistillationShortcut().solve(
-            [feed], light_key="toluene", heavy_key="xylene",
+            [feed], light_key="108-88-3", heavy_key="106-42-3",
             lk_recovery=0.99, hk_recovery=0.99, reflux_ratio=2.0,
             property_package="ideal", distillate_name="dist", bottoms_name="bot",
         )
         dist = next(o for o in outlets if o.name == "dist")
-        assert (dist.flow * dist.composition.get("toluene", 0)) / (feed.flow * feed.composition["toluene"]) >= 0.989
+        assert (dist.flow * dist.composition.get("108-88-3", 0)) / (feed.flow * feed.composition["108-88-3"]) >= 0.989
 
     def test_btx_hk_recovery(self):
         feed = self._feed()
         outlets, _ = DistillationShortcut().solve(
-            [feed], light_key="toluene", heavy_key="xylene",
+            [feed], light_key="108-88-3", heavy_key="106-42-3",
             lk_recovery=0.99, hk_recovery=0.99, reflux_ratio=2.0,
             property_package="ideal", distillate_name="dist", bottoms_name="bot",
         )
         bot = next(o for o in outlets if o.name == "bot")
-        assert (bot.flow * bot.composition.get("xylene", 0)) / (feed.flow * feed.composition["xylene"]) >= 0.989
+        assert (bot.flow * bot.composition.get("106-42-3", 0)) / (feed.flow * feed.composition["106-42-3"]) >= 0.989
 
 
 # ── 5. Full flowsheet end-to-end ──────────────────────────────────────────────
@@ -175,14 +178,14 @@ class TestFullFlowsheet:
     def _build(self):
         nodes = [
             {"id": "feed", "type": "feed", "data": {
-                "composition": {"benzene": 0.33, "toluene": 0.34, "xylene": 0.33},
+                "composition": {"71-43-2": 0.33, "108-88-3": 0.34, "106-42-3": 0.33},
                 "flow_mol_s": 2.0, "temperature_C": 100.0, "pressure_bar": 1.5,
             }},
             {"id": "flash", "type": "flash_drum", "data": {
                 "temperature_C": 100.0, "pressure_bar": 1.5, "property_package": "peng_robinson",
             }},
             {"id": "dist", "type": "distillation_shortcut", "data": {
-                "light_key": "toluene", "heavy_key": "xylene",
+                "light_key": "108-88-3", "heavy_key": "106-42-3",
                 "lk_recovery": 0.95, "hk_recovery": 0.95, "reflux_ratio": 2.0,
                 "property_package": "ideal",
             }},
@@ -223,18 +226,18 @@ class TestFullFlowsheet:
 
 class TestAntoineExtrapolation:
     def test_water_at_500K_raises(self):
-        water = COMPONENT_LIBRARY["water"]
+        water = COMPONENT_LIBRARY["7732-18-5"]
         assert water.tmax_C is not None
         with pytest.raises(ThermodynamicRangeError) as exc_info:
             water.vapor_pressure(500.0 - 273.15)
         assert exc_info.value.T > exc_info.value.T_max
 
     def test_water_at_100C_ok(self):
-        psat = COMPONENT_LIBRARY["water"].vapor_pressure(100.0)
+        psat = COMPONENT_LIBRARY["7732-18-5"].vapor_pressure(100.0)
         assert 0.9 < psat < 1.2
 
     def test_benzene_no_range_no_raise(self):
-        b = COMPONENT_LIBRARY["benzene"]
+        b = COMPONENT_LIBRARY["71-43-2"]
         assert b.tmin_C is None and b.tmax_C is None
         assert b.vapor_pressure(200.0) > 0
 
@@ -247,7 +250,7 @@ class TestContextBuilder:
             "converged": True,
             "streams": {"s1": {"flow": 1.0, "temperature": 100.0, "pressure": 1.5,
                                "vapor_fraction": 0.0,
-                               "composition": {"benzene": 0.4, "toluene": 0.3, "xylene": 0.3}}},
+                               "composition": {"71-43-2": 0.4, "108-88-3": 0.3, "106-42-3": 0.3}}},
             "energy_balance": {"total_duty_kW": -12.5, "heating_kW": 0.0, "cooling_kW": 12.5},
             "node_summaries": {
                 "dist1": {
@@ -256,13 +259,13 @@ class TestContextBuilder:
                     "condenser_duty_kW": -45.0, "reboiler_duty_kW": 48.0,
                     "property_package": "ideal",
                     "distillate_stream": {"flow": 0.59, "temperature": 110.0,
-                                         "composition": {"benzene": 0.68, "toluene": 0.32}},
+                                         "composition": {"71-43-2": 0.68, "108-88-3": 0.32}},
                     "bottoms_stream":    {"flow": 0.41, "temperature": 135.0,
-                                         "composition": {"toluene": 0.08, "xylene": 0.92}},
+                                         "composition": {"108-88-3": 0.08, "106-42-3": 0.92}},
                 },
                 "flash1": {
                     "vapor_fraction": 0.12, "property_package": "peng_robinson",
-                    "K_values": {"benzene": 0.8, "toluene": 0.4, "xylene": 0.2},
+                    "K_values": {"71-43-2": 0.8, "108-88-3": 0.4, "106-42-3": 0.2},
                 },
             },
             "solver_diagnostics": {"converged": True, "iterations": 0,

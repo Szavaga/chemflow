@@ -18,7 +18,36 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── 50 compounds by CAS number ─────────────────────────────────────────────────
+from chemicals import search_chemical
+from app.models.orm import ChemicalComponent
+from sqlalchemy import select, func
 
+async def seed_global_components(session):
+    # Ellenőrizzük, van-e már adat, hogy ne duplikáljunk
+    count_stmt = select(func.count()).select_from(ChemicalComponent)
+    result = await session.execute(count_stmt)
+    if result.scalar() > 0:
+        return # Már vannak adatok
+
+    for name, cas in SEED_CAS:
+        try:
+            data = search_chemical(cas)
+            new_comp = ChemicalComponent(
+                name=name,
+                cas_number=cas,
+                mw=data.MW,
+                tc=data.Tc,         # Itt kerül be a Tc
+                pc=data.Pc,         # Itt kerül be a Pc
+                omega=data.omega,   # Acentrikus faktor
+                is_global=True,     # ETTŐL TŰNIK EL A "CUSTOM" BADGE
+                project_id=None
+            )
+            session.add(new_comp)
+        except Exception as e:
+            print(f"Hiba a seederben ({name}): {e}")
+    
+    await session.commit()
+    
 SEED_CAS: list[tuple[str, str]] = [
     ("Water",                 "7732-18-5"),
     ("Ethanol",               "64-17-5"),

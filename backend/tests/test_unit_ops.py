@@ -36,11 +36,11 @@ from app.core.thermo import (
 def benz_tol(benz: float = 0.5, T: float = 25.0, P: float = 1.0, F: float = 1.0) -> Stream:
     """50/50 benzene-toluene liquid stream."""
     tol = 1.0 - benz
-    return Stream("feed", T, P, F, {"benzene": benz, "toluene": tol}, 0.0)
+    return Stream("feed", T, P, F, {"71-43-2": benz, "108-88-3": tol}, 0.0)
 
 
 def water_stream(T: float = 25.0, P: float = 1.0, F: float = 1.0) -> Stream:
-    return Stream("water_feed", T, P, F, {"water": 1.0}, 0.0)
+    return Stream("water_feed", T, P, F, {"7732-18-5": 1.0}, 0.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -49,51 +49,51 @@ def water_stream(T: float = 25.0, P: float = 1.0, F: float = 1.0) -> Stream:
 
 class TestThermo:
     def test_mixture_MW_pure_benzene(self):
-        MW = mixture_MW({"benzene": 1.0})
+        MW = mixture_MW({"71-43-2": 1.0})
         assert abs(MW - 78.11) < 0.01
 
     def test_mixture_MW_50_50_benz_tol(self):
-        MW = mixture_MW({"benzene": 0.5, "toluene": 0.5})
+        MW = mixture_MW({"71-43-2": 0.5, "108-88-3": 0.5})
         assert abs(MW - (78.11 * 0.5 + 92.14 * 0.5)) < 0.01
 
     def test_mixture_Cp_liquid_water(self):
-        Cp = mixture_Cp_liquid({"water": 1.0})
+        Cp = mixture_Cp_liquid({"7732-18-5": 1.0})
         # Pure water liquid Cp should be ~75 J/(mol·K)
         assert 70 < Cp < 80
 
     def test_mixture_Cp_ig_benzene(self):
-        Cp = mixture_Cp_ig({"benzene": 1.0})
+        Cp = mixture_Cp_ig({"71-43-2": 1.0})
         assert 75 < Cp < 90
 
     def test_mixture_enthalpy_liquid_at_reference(self):
         # At T=0 °C, liquid enthalpy = 0 by definition
-        H = mixture_enthalpy({"water": 1.0}, T_C=0.0, vapor_fraction=0.0)
+        H = mixture_enthalpy({"7732-18-5": 1.0}, T_C=0.0, vapor_fraction=0.0)
         assert H == pytest.approx(0.0, abs=1.0)
 
     def test_mixture_enthalpy_increases_with_T(self):
-        H1 = mixture_enthalpy({"benzene": 1.0}, T_C=25.0)
-        H2 = mixture_enthalpy({"benzene": 1.0}, T_C=100.0)
+        H1 = mixture_enthalpy({"71-43-2": 1.0}, T_C=25.0)
+        H2 = mixture_enthalpy({"71-43-2": 1.0}, T_C=100.0)
         assert H2 > H1
 
     def test_mixture_enthalpy_vapor_higher_than_liquid(self):
-        comp = {"benzene": 1.0}
+        comp = {"71-43-2": 1.0}
         H_liq = mixture_enthalpy(comp, T_C=80.0, vapor_fraction=0.0)
         H_vap = mixture_enthalpy(comp, T_C=80.0, vapor_fraction=1.0)
         assert H_vap > H_liq   # must include ΔHvap
 
     def test_density_liquid_water(self):
-        rho = mixture_density_liquid({"water": 1.0})
+        rho = mixture_density_liquid({"7732-18-5": 1.0})
         assert 990 < rho < 1005   # ~997 kg/m³
 
     def test_density_liquid_benzene(self):
-        rho = mixture_density_liquid({"benzene": 1.0})
+        rho = mixture_density_liquid({"71-43-2": 1.0})
         assert 860 < rho < 900
 
     def test_density_liquid_mixture(self):
         # Mixture density should be between the two pure components
-        rho_benz = mixture_density_liquid({"benzene": 1.0})
-        rho_tol  = mixture_density_liquid({"toluene": 1.0})
-        rho_mix  = mixture_density_liquid({"benzene": 0.5, "toluene": 0.5})
+        rho_benz = mixture_density_liquid({"71-43-2": 1.0})
+        rho_tol  = mixture_density_liquid({"108-88-3": 1.0})
+        rho_mix  = mixture_density_liquid({"71-43-2": 0.5, "108-88-3": 0.5})
         assert min(rho_benz, rho_tol) < rho_mix < max(rho_benz, rho_tol)
 
 
@@ -103,12 +103,12 @@ class TestThermo:
 
 class TestStream:
     def test_valid_stream(self):
-        s = Stream("s1", 25.0, 1.0, 1.0, {"water": 1.0})
+        s = Stream("s1", 25.0, 1.0, 1.0, {"7732-18-5": 1.0})
         assert s.flow == 1.0
 
     def test_negative_flow_rejected(self):
         with pytest.raises(SimulationError, match="flow"):
-            Stream("bad", 25.0, 1.0, -0.1, {"water": 1.0})
+            Stream("bad", 25.0, 1.0, -0.1, {"7732-18-5": 1.0})
 
     def test_empty_composition_rejected(self):
         with pytest.raises(SimulationError, match="composition"):
@@ -116,18 +116,18 @@ class TestStream:
 
     def test_composition_not_summing_to_one(self):
         with pytest.raises(SimulationError, match="sums"):
-            Stream("bad", 25.0, 1.0, 1.0, {"benzene": 0.3, "toluene": 0.3})
+            Stream("bad", 25.0, 1.0, 1.0, {"71-43-2": 0.3, "108-88-3": 0.3})
 
     def test_invalid_vapor_fraction(self):
         with pytest.raises(SimulationError, match="vapor_fraction"):
-            Stream("bad", 25.0, 1.0, 1.0, {"water": 1.0}, vapor_fraction=1.5)
+            Stream("bad", 25.0, 1.0, 1.0, {"7732-18-5": 1.0}, vapor_fraction=1.5)
 
     def test_zero_flow_is_valid(self):
-        s = Stream("zero", 25.0, 1.0, 0.0, {"water": 1.0})
+        s = Stream("zero", 25.0, 1.0, 0.0, {"7732-18-5": 1.0})
         assert s.flow == 0.0
 
     def test_to_dict_roundtrip(self):
-        s = Stream("s1", 80.0, 2.0, 5.0, {"benzene": 0.5, "toluene": 0.5}, 0.3)
+        s = Stream("s1", 80.0, 2.0, 5.0, {"71-43-2": 0.5, "108-88-3": 0.5}, 0.3)
         d = s.to_dict()
         assert d["temperature"] == 80.0
         assert d["pressure"] == 2.0
@@ -135,8 +135,8 @@ class TestStream:
         assert d["vapor_fraction"] == 0.3
 
     def test_enthalpy_flow_proportional_to_flow(self):
-        s1 = Stream("s1", 50.0, 1.0, 1.0, {"water": 1.0})
-        s2 = Stream("s2", 50.0, 1.0, 2.0, {"water": 1.0})
+        s1 = Stream("s1", 50.0, 1.0, 1.0, {"7732-18-5": 1.0})
+        s2 = Stream("s2", 50.0, 1.0, 2.0, {"7732-18-5": 1.0})
         assert s2.enthalpy_flow == pytest.approx(2 * s1.enthalpy_flow)
 
 
@@ -146,36 +146,36 @@ class TestStream:
 
 class TestMixer:
     def test_total_flow_conserved(self):
-        s1 = Stream("a", 25.0, 1.0, 2.0, {"water": 1.0})
-        s2 = Stream("b", 50.0, 1.0, 3.0, {"water": 1.0})
+        s1 = Stream("a", 25.0, 1.0, 2.0, {"7732-18-5": 1.0})
+        s2 = Stream("b", 50.0, 1.0, 3.0, {"7732-18-5": 1.0})
         outs, smry = Mixer().solve([s1, s2])
         assert outs[0].flow == pytest.approx(5.0)
 
     def test_component_balance(self):
-        s1 = Stream("a", 25.0, 1.0, 1.0, {"benzene": 1.0})
-        s2 = Stream("b", 25.0, 1.0, 1.0, {"toluene": 1.0})
+        s1 = Stream("a", 25.0, 1.0, 1.0, {"71-43-2": 1.0})
+        s2 = Stream("b", 25.0, 1.0, 1.0, {"108-88-3": 1.0})
         outs, _ = Mixer().solve([s1, s2])
         out = outs[0]
-        assert out.composition["benzene"] == pytest.approx(0.5, abs=1e-6)
-        assert out.composition["toluene"] == pytest.approx(0.5, abs=1e-6)
+        assert out.composition["71-43-2"] == pytest.approx(0.5, abs=1e-6)
+        assert out.composition["108-88-3"] == pytest.approx(0.5, abs=1e-6)
 
     def test_outlet_pressure_is_minimum(self):
-        s1 = Stream("a", 25.0, 3.0, 1.0, {"water": 1.0})
-        s2 = Stream("b", 25.0, 1.0, 1.0, {"water": 1.0})
+        s1 = Stream("a", 25.0, 3.0, 1.0, {"7732-18-5": 1.0})
+        s2 = Stream("b", 25.0, 1.0, 1.0, {"7732-18-5": 1.0})
         outs, _ = Mixer().solve([s1, s2])
         assert outs[0].pressure == pytest.approx(1.0)
 
     def test_energy_balance_same_component(self):
         # Two identical streams — outlet T should equal inlet T
-        s1 = Stream("a", 40.0, 1.0, 1.0, {"water": 1.0})
-        s2 = Stream("b", 40.0, 1.0, 1.0, {"water": 1.0})
+        s1 = Stream("a", 40.0, 1.0, 1.0, {"7732-18-5": 1.0})
+        s2 = Stream("b", 40.0, 1.0, 1.0, {"7732-18-5": 1.0})
         outs, _ = Mixer().solve([s1, s2])
         assert outs[0].temperature == pytest.approx(40.0, abs=1.0)
 
     def test_energy_balance_hot_cold_mix(self):
         # Mix 1 mol/s at 0°C and 1 mol/s at 100°C of pure water → ~50°C
-        s1 = Stream("cold", 0.0,   1.0, 1.0, {"water": 1.0})
-        s2 = Stream("hot",  100.0, 1.0, 1.0, {"water": 1.0})
+        s1 = Stream("cold", 0.0,   1.0, 1.0, {"7732-18-5": 1.0})
+        s2 = Stream("hot",  100.0, 1.0, 1.0, {"7732-18-5": 1.0})
         outs, _ = Mixer().solve([s1, s2])
         assert outs[0].temperature == pytest.approx(50.0, abs=2.0)
 
@@ -190,8 +190,8 @@ class TestMixer:
             Mixer().solve([])
 
     def test_zero_total_flow_raises(self):
-        s1 = Stream("a", 25.0, 1.0, 0.0, {"water": 1.0})
-        s2 = Stream("b", 25.0, 1.0, 0.0, {"water": 1.0})
+        s1 = Stream("a", 25.0, 1.0, 0.0, {"7732-18-5": 1.0})
+        s2 = Stream("b", 25.0, 1.0, 0.0, {"7732-18-5": 1.0})
         with pytest.raises(SimulationError, match="zero"):
             Mixer().solve([s1, s2])
 
@@ -254,14 +254,14 @@ class TestSplitter:
 class TestHeatExchanger:
     def test_duty_mode_increases_temperature(self):
         feed = water_stream(T=20.0)
-        Q = mixture_Cp_liquid({"water": 1.0}) * feed.flow * 80.0   # heat to raise ~80°C
+        Q = mixture_Cp_liquid({"7732-18-5": 1.0}) * feed.flow * 80.0   # heat to raise ~80°C
         outs, smry = HeatExchanger().solve([feed], mode="duty", duty_W=Q)
         assert outs[0].temperature > 20.0
         assert smry["duty_W"] == pytest.approx(Q)
 
     def test_duty_mode_negative_duty_cools(self):
         feed = water_stream(T=80.0)
-        Q = -mixture_Cp_liquid({"water": 1.0}) * feed.flow * 60.0
+        Q = -mixture_Cp_liquid({"7732-18-5": 1.0}) * feed.flow * 60.0
         outs, smry = HeatExchanger().solve([feed], mode="duty", duty_W=Q)
         assert outs[0].temperature < 80.0
 
@@ -319,17 +319,16 @@ class TestHeatExchanger:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestPFR:
-    # Stoichiometry: A → B  (single reactant, single product)
-    _stoich_AB = {"benzene": -1.0, "toluene": 1.0}
+    # Stoichiometry: A → B  (benzene → toluene)
+    _stoich_AB = {"71-43-2": -1.0, "108-88-3": 1.0}
 
     def test_full_conversion_depletes_reactant(self):
-        # Feed: pure benzene; reaction benzene → toluene; X=1
-        feed = Stream("f", 25.0, 1.0, 1.0, {"benzene": 1.0})
+        feed = Stream("f", 25.0, 1.0, 1.0, {"71-43-2": 1.0})
         outs, smry = PFR().solve(
-            [feed], stoichiometry={"benzene": -1.0, "toluene": 1.0}, conversion=1.0
+            [feed], stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0}, conversion=1.0
         )
-        assert "toluene" in outs[0].composition
-        assert outs[0].composition.get("benzene", 0.0) == pytest.approx(0.0, abs=1e-9)
+        assert "108-88-3" in outs[0].composition
+        assert outs[0].composition.get("71-43-2", 0.0) == pytest.approx(0.0, abs=1e-9)
 
     def test_zero_conversion_passthrough(self):
         feed = benz_tol()
@@ -340,21 +339,20 @@ class TestPFR:
         assert smry["moles_consumed_mol_s"] == pytest.approx(0.0)
 
     def test_partial_conversion(self):
-        feed = Stream("f", 25.0, 1.0, 2.0, {"benzene": 1.0})
+        feed = Stream("f", 25.0, 1.0, 2.0, {"71-43-2": 1.0})
         outs, smry = PFR().solve(
-            [feed], stoichiometry={"benzene": -1.0, "toluene": 1.0}, conversion=0.5
+            [feed], stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0}, conversion=0.5
         )
         # 50% of 2 mol/s benzene consumed → 1 mol/s benzene + 1 mol/s toluene out
-        # total = 2 mol/s, z_benz = 1/2 = 0.5
         assert outs[0].flow == pytest.approx(2.0, rel=1e-6)
-        z_benz = outs[0].composition.get("benzene", 0.0)
+        z_benz = outs[0].composition.get("71-43-2", 0.0)
         assert z_benz == pytest.approx(0.5, rel=1e-3)
 
     def test_exothermic_reaction_raises_temperature(self):
-        feed = Stream("f", 25.0, 1.0, 1.0, {"benzene": 1.0})
+        feed = Stream("f", 25.0, 1.0, 1.0, {"71-43-2": 1.0})
         outs, smry = PFR().solve(
             [feed],
-            stoichiometry={"benzene": -1.0, "toluene": 1.0},
+            stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
             conversion=1.0,
             delta_Hrxn_J_mol=-50_000.0,   # exothermic
         )
@@ -362,10 +360,10 @@ class TestPFR:
         assert smry["heat_released_W"] > 0
 
     def test_endothermic_reaction_lowers_temperature(self):
-        feed = Stream("f", 100.0, 1.0, 1.0, {"benzene": 1.0})
+        feed = Stream("f", 100.0, 1.0, 1.0, {"71-43-2": 1.0})
         outs, smry = PFR().solve(
             [feed],
-            stoichiometry={"benzene": -1.0, "toluene": 1.0},
+            stoichiometry={"71-43-2": -1.0, "108-88-3": 1.0},
             conversion=1.0,
             delta_Hrxn_J_mol=+50_000.0,   # endothermic
         )
@@ -373,10 +371,10 @@ class TestPFR:
 
     def test_molar_expansion_A_to_2B(self):
         # A → 2B: outlet molar flow doubles at full conversion
-        feed = Stream("f", 25.0, 1.0, 1.0, {"benzene": 1.0})
+        feed = Stream("f", 25.0, 1.0, 1.0, {"71-43-2": 1.0})
         outs, smry = PFR().solve(
             [feed],
-            stoichiometry={"benzene": -1.0, "toluene": 2.0},
+            stoichiometry={"71-43-2": -1.0, "108-88-3": 2.0},
             conversion=1.0,
         )
         assert outs[0].flow == pytest.approx(2.0, rel=1e-6)
@@ -384,7 +382,7 @@ class TestPFR:
     def test_no_reactant_in_stoich_raises(self):
         feed = benz_tol()
         with pytest.raises(SimulationError, match="no reactant"):
-            PFR().solve([feed], stoichiometry={"toluene": 1.0}, conversion=0.5)
+            PFR().solve([feed], stoichiometry={"108-88-3": 1.0}, conversion=0.5)
 
     def test_conversion_out_of_range_raises(self):
         with pytest.raises(SimulationError, match="conversion"):
@@ -422,7 +420,7 @@ class TestFlash:
         feed = benz_tol(T=95.0, P=1.0, F=1.0)
         outs, smry = Flash().solve([feed])
         liq, vap = outs[0], outs[1]
-        assert vap.composition["benzene"] > liq.composition["benzene"]
+        assert vap.composition["71-43-2"] > liq.composition["71-43-2"]
 
     def test_material_balance_closes(self):
         feed = benz_tol(T=95.0, P=1.0, F=4.0)
@@ -511,7 +509,7 @@ class TestPump:
         assert outs[0].composition == pytest.approx(feed.composition, abs=1e-9)
 
     def test_vapor_inlet_issues_warning(self):
-        feed = Stream("vap", 100.0, 1.0, 1.0, {"water": 1.0}, vapor_fraction=0.5)
+        feed = Stream("vap", 100.0, 1.0, 1.0, {"7732-18-5": 1.0}, vapor_fraction=0.5)
         _, smry = Pump().solve([feed], delta_P_bar=2.0)
         assert any("vapor_fraction" in w for w in smry["warnings"])
 
@@ -540,7 +538,7 @@ class TestFlowsheetSolver:
     @staticmethod
     def _feed_node(node_id: str, **data_overrides) -> dict:
         data = {
-            "composition": {"benzene": 0.5, "toluene": 0.5},
+            "composition": {"71-43-2": 0.5, "108-88-3": 0.5},
             "temperature_C": 25.0,
             "pressure_bar": 1.0,
             "flow_mol_s": 1.0,
@@ -628,7 +626,7 @@ class TestFlowsheetSolver:
         assert liq["vapor_fraction"] == pytest.approx(0.0)
 
     def test_heater_raises_temperature(self):
-        Cp_benz_tol = mixture_Cp_liquid({"benzene": 0.5, "toluene": 0.5})
+        Cp_benz_tol = mixture_Cp_liquid({"71-43-2": 0.5, "108-88-3": 0.5})
         duty = Cp_benz_tol * 1.0 * 50.0   # ~50°C rise for 1 mol/s
         nodes = [
             self._feed_node("N1", temperature_C=25.0),
@@ -656,7 +654,7 @@ class TestFlowsheetSolver:
             {
                 "id": "N1", "type": "feed",
                 "data": {
-                    "composition": {"benzene": 1.0},
+                    "composition": {"71-43-2": 1.0},
                     "temperature_C": 25.0, "pressure_bar": 1.0, "flow_mol_s": 1.0,
                 },
                 "position": {"x": 0, "y": 0},
@@ -664,7 +662,7 @@ class TestFlowsheetSolver:
             {
                 "id": "N2", "type": "pfr",
                 "data": {
-                    "stoichiometry": {"benzene": -1.0, "toluene": 1.0},
+                    "stoichiometry": {"71-43-2": -1.0, "108-88-3": 1.0},
                     "conversion": 0.9,
                     "delta_Hrxn_J_mol": 0.0,
                 },
@@ -677,13 +675,12 @@ class TestFlowsheetSolver:
         assert result["converged"] is True
         # benzene fraction should be low (10% remaining)
         stream = result["streams"]["E2"]
-        assert stream["composition"]["benzene"] == pytest.approx(0.1 / 1.0, rel=0.05)
+        assert stream["composition"]["71-43-2"] == pytest.approx(0.1 / 1.0, rel=0.05)
 
     # ── error handling ────────────────────────────────────────────────────────
 
     def test_cycle_handled_via_recycle_solver(self):
         # Cycles are no longer rejected; the recycle solver handles them.
-        # A two-mixer loop with no feed trivially converges (passthrough).
         nodes = [
             self._node("N1", "mixer"),
             self._node("N2", "mixer"),
@@ -762,7 +759,7 @@ class TestFlowsheetSolver:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _btx_feed(F: float = 100.0 / 3600.0) -> Stream:
-    """Classic Seader & Henley BTX feed: 45 % benzene, 35 % toluene, 20 % xylene.
+    """Classic Seader & Henley BTX feed: 45 % benzene, 35 % toluene, 20 % p-xylene.
 
     F defaults to 100 kmol/hr expressed in mol/s.
     """
@@ -771,7 +768,7 @@ def _btx_feed(F: float = 100.0 / 3600.0) -> Stream:
         temperature=98.0,   # ≈ bubble point at 1 atm
         pressure=1.013,
         flow=F,
-        composition={"benzene": 0.45, "toluene": 0.35, "xylene": 0.20},
+        composition={"71-43-2": 0.45, "108-88-3": 0.35, "106-42-3": 0.20},
         vapor_fraction=0.0,
     )
 
@@ -784,8 +781,8 @@ class TestDistillationShortcut:
         feed = _btx_feed()
         outlets, summary = DistillationShortcut().solve(
             [feed],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -796,8 +793,8 @@ class TestDistillationShortcut:
         feed = _btx_feed()
         outlets, _ = DistillationShortcut().solve(
             [feed],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -808,15 +805,15 @@ class TestDistillationShortcut:
         feed = _btx_feed()
         outlets, _ = DistillationShortcut().solve(
             [feed],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
         )
         distillate, bottoms = outlets
-        tol_D = distillate.flow * distillate.composition["toluene"]
-        tol_B = bottoms.flow   * bottoms.composition["toluene"]
+        tol_D = distillate.flow * distillate.composition["108-88-3"]
+        tol_B = bottoms.flow   * bottoms.composition["108-88-3"]
         recovery = tol_D / (tol_D + tol_B)
         assert recovery == pytest.approx(0.99, rel=1e-4)
 
@@ -824,15 +821,15 @@ class TestDistillationShortcut:
         feed = _btx_feed()
         outlets, _ = DistillationShortcut().solve(
             [feed],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
         )
         distillate, bottoms = outlets
-        xyl_B = bottoms.flow   * bottoms.composition["xylene"]
-        xyl_D = distillate.flow * distillate.composition["xylene"]
+        xyl_B = bottoms.flow   * bottoms.composition["106-42-3"]
+        xyl_D = distillate.flow * distillate.composition["106-42-3"]
         recovery = xyl_B / (xyl_B + xyl_D)
         assert recovery == pytest.approx(0.99, rel=1e-4)
 
@@ -841,15 +838,15 @@ class TestDistillationShortcut:
         feed = _btx_feed()
         outlets, _ = DistillationShortcut().solve(
             [feed],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
         )
         distillate, bottoms = outlets
-        benz_D = distillate.flow * distillate.composition["benzene"]
-        benz_total = feed.flow * feed.composition["benzene"]
+        benz_D = distillate.flow * distillate.composition["71-43-2"]
+        benz_total = feed.flow * feed.composition["71-43-2"]
         assert benz_D / benz_total >= 0.999 - 1e-9
 
     # ── FUG parameter ranges ────────────────────────────────────────────────────
@@ -857,8 +854,8 @@ class TestDistillationShortcut:
     def test_N_min_positive(self):
         _, summary = DistillationShortcut().solve(
             [_btx_feed()],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -868,8 +865,8 @@ class TestDistillationShortcut:
     def test_R_min_positive(self):
         _, summary = DistillationShortcut().solve(
             [_btx_feed()],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -879,8 +876,8 @@ class TestDistillationShortcut:
     def test_N_actual_gt_N_min(self):
         _, summary = DistillationShortcut().solve(
             [_btx_feed()],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -891,8 +888,8 @@ class TestDistillationShortcut:
         """Molokanov correlation for this system should give 8 – 30 actual stages."""
         _, summary = DistillationShortcut().solve(
             [_btx_feed()],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -904,8 +901,8 @@ class TestDistillationShortcut:
         feed = _btx_feed()
         _, summary = DistillationShortcut().solve(
             [feed],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=5.0,   # definitely above R_min
@@ -914,8 +911,8 @@ class TestDistillationShortcut:
         with pytest.raises(SimulationError, match="R_min"):
             DistillationShortcut().solve(
                 [feed],
-                light_key="toluene",
-                heavy_key="xylene",
+                light_key="108-88-3",
+                heavy_key="106-42-3",
                 lk_recovery=0.99,
                 hk_recovery=0.99,
                 reflux_ratio=max(0.0, R_min - 0.1),
@@ -924,8 +921,8 @@ class TestDistillationShortcut:
     def test_alpha_lk_gt_1(self):
         _, summary = DistillationShortcut().solve(
             [_btx_feed()],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -937,44 +934,21 @@ class TestDistillationShortcut:
     def test_condenser_duty_positive(self):
         _, summary = DistillationShortcut().solve(
             [_btx_feed()],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
         )
         assert summary["condenser_duty_kW"] > 0
 
-    # ── CAS number input ────────────────────────────────────────────────────────
-
-    def test_cas_number_input(self):
-        """light_key and heavy_key can be CAS numbers."""
-        feed = _btx_feed()
-        outlets_cas, summary_cas = DistillationShortcut().solve(
-            [feed],
-            light_key="108-88-3",   # toluene CAS
-            heavy_key="106-42-3",   # p-xylene CAS
-            lk_recovery=0.99,
-            hk_recovery=0.99,
-            reflux_ratio=2.0,
-        )
-        outlets_id, summary_id = DistillationShortcut().solve(
-            [feed],
-            light_key="toluene",
-            heavy_key="xylene",
-            lk_recovery=0.99,
-            hk_recovery=0.99,
-            reflux_ratio=2.0,
-        )
-        assert summary_cas["N_min"] == pytest.approx(summary_id["N_min"], rel=1e-9)
-
     # ── Peng-Robinson property package ─────────────────────────────────────────
 
     def test_pr_package_gives_positive_N_min(self):
         _, summary = DistillationShortcut().solve(
             [_btx_feed()],
-            light_key="toluene",
-            heavy_key="xylene",
+            light_key="108-88-3",
+            heavy_key="106-42-3",
             lk_recovery=0.99,
             hk_recovery=0.99,
             reflux_ratio=2.0,
@@ -985,12 +959,12 @@ class TestDistillationShortcut:
     # ── validation errors ───────────────────────────────────────────────────────
 
     def test_missing_light_key_raises(self):
-        feed = Stream("f", 25.0, 1.0, 1.0, {"benzene": 0.5, "toluene": 0.5})
+        feed = Stream("f", 25.0, 1.0, 1.0, {"71-43-2": 0.5, "108-88-3": 0.5})
         with pytest.raises(SimulationError):
             DistillationShortcut().solve(
                 [feed],
-                light_key="xylene",    # not in feed
-                heavy_key="toluene",
+                light_key="106-42-3",    # p-xylene not in feed
+                heavy_key="108-88-3",
                 lk_recovery=0.99,
                 hk_recovery=0.99,
                 reflux_ratio=2.0,
@@ -1001,8 +975,8 @@ class TestDistillationShortcut:
         with pytest.raises(SimulationError):
             DistillationShortcut().solve(
                 [feed, feed],
-                light_key="toluene",
-                heavy_key="xylene",
+                light_key="108-88-3",
+                heavy_key="106-42-3",
                 lk_recovery=0.99,
                 hk_recovery=0.99,
                 reflux_ratio=2.0,
@@ -1012,8 +986,8 @@ class TestDistillationShortcut:
         with pytest.raises(SimulationError):
             DistillationShortcut().solve(
                 [_btx_feed()],
-                light_key="toluene",
-                heavy_key="xylene",
+                light_key="108-88-3",
+                heavy_key="106-42-3",
                 lk_recovery=1.0,    # must be strictly < 1
                 hk_recovery=0.99,
                 reflux_ratio=2.0,
@@ -1024,12 +998,12 @@ class TestDistillationShortcut:
     def test_binary_benzene_toluene(self):
         feed = Stream(
             "bt_feed", 80.0, 1.013, 1.0,
-            {"benzene": 0.5, "toluene": 0.5}, 0.0,
+            {"71-43-2": 0.5, "108-88-3": 0.5}, 0.0,
         )
         outlets, summary = DistillationShortcut().solve(
             [feed],
-            light_key="benzene",
-            heavy_key="toluene",
+            light_key="71-43-2",
+            heavy_key="108-88-3",
             lk_recovery=0.95,
             hk_recovery=0.95,
             reflux_ratio=3.0,
