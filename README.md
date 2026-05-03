@@ -14,6 +14,13 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 
 ## Changelog
 
+### 2026-05-02
+- **NRTL activity coefficient model** — added as a third VLE property package (`property_package="nrtl"`) for the Flash Drum. Implements the full multicomponent NRTL equation (Renon & Prausnitz). Binary parameters sourced from DECHEMA for ethanol/water, methanol/water, acetone/water, IPA/water, and ethanol/benzene. Unlisted pairs fall back to ideal (γ = 1) without silently corrupting results.
+- **Peng-Robinson binary interaction parameter (kij) database** — `PengRobinson` now loads a curated `PR_BIP` table with literature kij values for 10 common polar pairs (e.g. EtOH/H₂O: 0.093, CO₂/H₂O: 0.190, toluene/H₂O: 0.220). Priority order: explicit `kij_override` per node → `thermo` IPDB → `PR_BIP` → 0. Flash Drum nodes can supply `kij_override` in their data dict to test custom values.
+- **Non-blocking solver** — `FlowsheetSolver.solve()` is now called via `asyncio.to_thread()` inside the `/run` endpoint, so long solves no longer block the uvicorn event loop and concurrent requests are handled in parallel.
+- **Parameter sweep endpoint** — new `POST /simulations/{id}/sweep` endpoint. Supply a `node_id`, a `parameter` key (any field in `node.data`), and a list of 2–50 values; the solver runs once per value using a thread-pool (max 4 workers) and returns ordered results. Enables sensitivity analysis, reflux-vs-purity curves, and reactor design sweeps without scripting.
+- **Fix: solver reports `converged=False` on node errors** — when a node raises `SimulationError` (e.g. a Feed with no composition) the solver already continued with a zero-flow placeholder and recorded a warning, but incorrectly returned `"converged": true`. Fixed: a `_node_errors` flag is now set on any node failure and propagated to the top-level `"converged"` field.
+
 ### 2026-04-29
 - **Fix: Feed component addition** — rebuilt the Component Library integration so clicking "Add" in the browser modal reliably updates the feed composition. The `ComponentManager` is now rendered at the top of the canvas component tree and uses functional state updates (`setNodes` / `setSel`) to avoid stale-closure bugs that caused silent no-ops when adding components. Component display names are now lazily fetched per CAS key instead of eagerly pre-loading 100 records.
 - **CAS-keyed compositions end-to-end** — `COMPONENT_LIBRARY`, thermodynamic property tables (`_EXTRA`), Wilson binary interaction parameters, and Peng-Robinson kij lookup are all now keyed by CAS Registry Number (e.g. `"64-17-5"`) instead of internal name strings (e.g. `"ethanol"`). The `CAS_LOOKUP`, `CAS_REVERSE_LOOKUP`, and `resolve_composition()` translation shim is removed; the frontend and backend now speak the same key format throughout.
@@ -30,7 +37,7 @@ A **browser-based steady-state process simulation platform** for chemical and ph
 | Splitter | Split fractions | Proportional split |
 | Heat Exchanger | Fixed duty (W) **or** outlet T (°C) | Enthalpy balance |
 | PFR | Reactant, product, conversion, ΔH_rxn | Stoichiometric conversion |
-| Flash Drum | T (°C), P (bar), property package | Rachford-Rice + Wilson activity coefficients **or** Peng-Robinson EoS |
+| Flash Drum | T (°C), P (bar), property package | Rachford-Rice + Wilson **or** NRTL activity coefficients **or** Peng-Robinson EoS |
 | CSTR | Volume (L), temperature (°C), coolant T (K) | Arrhenius kinetics + `fsolve` steady-state balance |
 | Pump | ΔP (bar), efficiency | Shaft-work calculation |
 | Distillation (shortcut) | Light/heavy key, recovery, reflux ratio | Fenske-Underwood-Gilliland (FUG) method |
@@ -70,21 +77,30 @@ Global components are **read-only**. Engineers can add project-scoped **custom c
 
 ### Thermodynamic models
 
-The Flash Drum node exposes a **Property package** dropdown with two options:
+The Flash Drum node exposes a **Property package** dropdown with three options:
 
 **Ideal (Raoult's Law)** *(default)*  
 K_i = γ_i · VP_i(T) / P using the Wilson activity coefficient model. Binary Wilson parameters (Λ_ij) are pre-loaded for ethanol/water (`64-17-5`/`7732-18-5`), methanol/water (`67-56-1`/`7732-18-5`), and acetone/water (`67-64-1`/`7732-18-5`). Parameters are keyed by CAS number so they apply automatically regardless of how a component was named. All other pairs default to Λ_ij = 1 (Raoult's law). Successive substitution converges on max relative K-change < 1 × 10⁻⁶.
+
+**NRTL**  
+K_i = γ_i · VP_i(T) / P using the Non-Random Two-Liquid activity coefficient model (Renon & Prausnitz, 1968). More accurate than Wilson for strongly non-ideal systems and asymmetric mixtures.
+
+- Full multicomponent NRTL equation: τ_ij = A_ij/(RT), G_ij = exp(−α_ij · τ_ij)
+- Binary parameters (α, A_ij, A_ji) sourced from DECHEMA VLE Data Collection for five pairs: ethanol/water, methanol/water, acetone/water, IPA/water, ethanol/benzene
+- Unlisted pairs silently fall back to γ = 1 (ideal) so mixed systems with some unlisted pairs remain solvable
+- Converges on max relative K-change < 1 × 10⁻⁶
 
 **Peng-Robinson EoS**  
 Full cubic equation of state VLE. K-values are initialised from the Wilson K-value correlation (K_i = Pc_i/P · exp(5.373(1+ω_i)(1−Tc_i/T))) and then iterated via fugacity coefficients:
 
     K_i = exp(ln φ_i^L − ln φ_i^V)
 
-- Soave alpha function with κ = 0.37464 + 1.54226ω − 0.26992ω²  
-- Van der Waals one-fluid mixing rules; binary interaction parameters kij default to zero (set per-simulation via the API if needed)  
-- Cubic Z-root solver with imaginary-root filtering and Z > B physical bound  
-- Exact PR fugacity coefficient expression (no simplifications)  
-- Converges on max absolute K-change < 1 × 10⁻⁸  
+- Soave alpha function with κ = 0.37464 + 1.54226ω − 0.26992ω²
+- Van der Waals one-fluid mixing rules with a curated `PR_BIP` table of literature kij values for 10 polar pairs (e.g. EtOH/H₂O: 0.093, CO₂/H₂O: 0.190, toluene/H₂O: 0.220); unlisted pairs default to kij = 0
+- Node data can supply `kij_override: {CAS_i: {CAS_j: value}}` to override individual pairs
+- Cubic Z-root solver with imaginary-root filtering and Z > B physical bound
+- Exact PR fugacity coefficient expression (no simplifications)
+- Converges on max absolute K-change < 1 × 10⁻⁸
 - Requires Tc, Pc, and ω for all feed components; a warning badge is shown in the config panel if Peng-Robinson is selected
 
 ## Control Studio (MPC)
@@ -320,6 +336,7 @@ chemflow/
 | PUT | `/simulations/{id}/flowsheet` | Save flowsheet (nodes + edges JSON) |
 | POST | `/simulations/{id}/run` | Run solver, persist result |
 | GET | `/simulations/{id}/results` | List results |
+| POST | `/simulations/{id}/sweep` | Parameter sweep — vary one node parameter across N values (2–50), returns results for each |
 | DELETE | `/simulations/{id}` | Delete simulation (cascades) |
 
 ### Component library (require `Authorization: Bearer <token>`)

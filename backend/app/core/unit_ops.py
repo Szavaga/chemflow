@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 from scipy.optimize import brentq
 
-from app.core.activity import wilson_gammas
+from app.core.activity import nrtl_gammas, wilson_gammas
 from app.core.simulation import COMPONENT_LIBRARY
 from app.core.thermo import (
     MissingPropertyError,
@@ -506,6 +506,7 @@ class Flash:
         temperature_C: float | None = None,
         pressure_bar: float | None = None,
         property_package: str = "ideal",
+        kij_override: dict[str, dict[str, float]] | None = None,
         liquid_name: str = "flash_liquid",
         vapor_name: str  = "flash_vapor",
     ) -> tuple[list[Stream], dict[str, Any]]:
@@ -531,7 +532,7 @@ class Flash:
 
         if property_package == "peng_robinson":
             try:
-                pr = PengRobinson(comps)
+                pr = PengRobinson(comps, kij_override=kij_override)
             except MissingPropertyError as exc:
                 raise SimulationError(str(exc)) from exc
             T_K  = T_C + 273.15
@@ -540,6 +541,14 @@ class Flash:
             K = (pr.Pc / 1e5) / P * np.exp(
                 5.373 * (1.0 + pr.omega) * (1.0 - pr.Tc / T_K)
             )
+        elif property_package == "nrtl":
+            VP    = np.array([COMPONENT_LIBRARY[c].vapor_pressure(T_C) for c in comps])
+            x     = z.copy()
+            T_K   = T_C + 273.15
+            gamma = np.array(
+                [nrtl_gammas(dict(zip(comps, x.tolist())), T_K)[c] for c in comps]
+            )
+            K = gamma * VP / P
         else:
             VP    = np.array([COMPONENT_LIBRARY[c].vapor_pressure(T_C) for c in comps])
             x     = z.copy()
@@ -614,6 +623,14 @@ class Flash:
                 K_new      = np.exp(ln_phi_L - ln_phi_V)
                 rel_change = float(np.max(np.abs(K_new - K)))
                 tol        = self._PR_TOL
+            elif property_package == "nrtl":
+                gamma_new = np.array(
+                    [nrtl_gammas(dict(zip(comps, x_new.tolist())), T_K)[c] for c in comps]
+                )
+                K_new      = gamma_new * VP / P
+                rel_change = float(np.max(np.abs(K_new - K) / np.maximum(K, 1e-10)))
+                tol        = self._SS_TOL
+                gamma      = gamma_new
             else:
                 gamma_new = np.array(
                     [wilson_gammas(dict(zip(comps, x_new.tolist())))[c] for c in comps]

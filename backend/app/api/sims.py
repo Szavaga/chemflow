@@ -18,9 +18,12 @@ DELETE /simulations/{id}               hard-delete Simulation (cascade removes c
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import time
 import uuid
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -60,6 +63,9 @@ from app.models.schemas import (
     SimulationDetail,
     SimulationResponse,
     SimulationResultResponse,
+    SweepPointResult,
+    SweepRequest,
+    SweepResponse,
     TemperatureIntervalOut,
 )
 
@@ -219,9 +225,9 @@ async def run_simulation(
 
     t_start = time.monotonic()
     try:
-        raw: dict[str, Any] = FlowsheetSolver(
-            sim.flowsheet.nodes, sim.flowsheet.edges
-        ).solve()
+        raw: dict[str, Any] = await asyncio.to_thread(
+            FlowsheetSolver(sim.flowsheet.nodes, sim.flowsheet.edges).solve
+        )
     except SimulationError as exc:
         sim.status = SimulationStatus.ERROR.value
         await db.commit()
@@ -293,6 +299,84 @@ async def get_results(
     if sim.result is None:
         return []
     return [SimulationResultResponse.model_validate(sim.result)]
+
+
+@router.post("/simulations/{sim_id}/sweep", response_model=SweepResponse)
+async def sweep_simulation(
+    sim_id: str,
+    body: SweepRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SweepResponse:
+    """Run the solver N times varying one node parameter and return all results.
+
+    The flowsheet is loaded once from the database; each sweep point receives a
+    deep-copy of the node list with the target parameter mutated to the given
+    value.  Points run in parallel (≤4 threads) inside a thread-pool so the
+    event loop is never blocked.
+    """
+    sim = await _load_simulation(sim_id, db, user)
+    if sim.flowsheet is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="No flowsheet saved — call PUT /simulations/{id}/flowsheet first",
+        )
+
+    nodes_base = sim.flowsheet.nodes
+    edges      = sim.flowsheet.edges
+
+    node_ids = {n["id"] for n in nodes_base}
+    if body.node_id not in node_ids:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Node '{body.node_id}' not found in flowsheet",
+        )
+
+    def _run_single(value: float) -> SweepPointResult:
+        nodes = copy.deepcopy(nodes_base)
+        for node in nodes:
+            if node["id"] == body.node_id:
+                node["data"][body.parameter] = value
+                break
+        try:
+            raw = FlowsheetSolver(nodes, edges).solve()
+            return SweepPointResult(
+                value=value,
+                converged=raw.get("convergence_info", {}).get("converged", False),
+                streams=raw.get("streams", {}),
+                energy_balance=raw.get("energy_balance", {}),
+                node_summaries=raw.get("node_summaries", {}),
+                warnings=[str(w) for w in raw.get("warnings", [])],
+            )
+        except SimulationError as exc:
+            return SweepPointResult(
+                value=value,
+                converged=False,
+                streams={},
+                energy_balance={},
+                node_summaries={},
+                warnings=[],
+                error=str(exc),
+            )
+
+    results: list[SweepPointResult] = await asyncio.to_thread(
+        _run_sweep_in_pool, _run_single, body.values
+    )
+    return SweepResponse(node_id=body.node_id, parameter=body.parameter, results=results)
+
+
+def _run_sweep_in_pool(
+    fn: Callable[[float], SweepPointResult],
+    values: list[float],
+) -> list[SweepPointResult]:
+    """Execute sweep points in a thread-pool; preserve original value order."""
+    results_map: dict[float, SweepPointResult] = {}
+    with ThreadPoolExecutor(max_workers=min(4, len(values))) as pool:
+        futures = {pool.submit(fn, v): v for v in values}
+        for future in as_completed(futures):
+            v = futures[future]
+            results_map[v] = future.result()
+    return [results_map[v] for v in values]
 
 
 @router.delete("/simulations/{sim_id}", status_code=204)

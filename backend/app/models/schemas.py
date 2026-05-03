@@ -350,6 +350,42 @@ class PinchResultResponse(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Parameter Sweep
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SweepRequest(BaseModel):
+    """Body for POST /simulations/{id}/sweep."""
+    node_id:   str = Field(description="ID of the node whose parameter will be varied")
+    parameter: str = Field(description="Key in node['data'] to mutate, e.g. 'conversion'")
+    values:    list[float] = Field(description="Parameter values to evaluate (2–50 elements)")
+
+    @field_validator("values")
+    @classmethod
+    def _check_values(cls, v: list[float]) -> list[float]:
+        if not (2 <= len(v) <= 50):
+            raise ValueError("values must contain between 2 and 50 elements")
+        return v
+
+
+class SweepPointResult(BaseModel):
+    """Result for one parameter value in a sweep."""
+    value:          float
+    converged:      bool
+    streams:        dict[str, Any]
+    energy_balance: dict[str, Any]
+    node_summaries: dict[str, Any]
+    warnings:       list[str]
+    error:          str | None = None
+
+
+class SweepResponse(BaseModel):
+    """Response for POST /simulations/{id}/sweep."""
+    node_id:   str
+    parameter: str
+    results:   list[SweepPointResult]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Chemical Components
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -625,7 +661,7 @@ class DistillationPreviewRequest(BaseModel):
     hk_recovery: float = Field(default=0.99, gt=0, lt=1, description="HK recovery in bottoms")
     reflux_ratio: float = Field(gt=0, description="Actual reflux ratio R (must be > R_min)")
     condenser_type: Literal["total", "partial"] = "total"
-    property_package: Literal["ideal", "peng_robinson"] = "ideal"
+    property_package: Literal["ideal", "peng_robinson", "nrtl"] = "ideal"
     q: float = Field(default=1.0, description="Feed quality (1=sat. liquid, 0=sat. vapour)")
 
 

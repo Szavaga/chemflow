@@ -130,7 +130,8 @@ class FlowsheetSolver:
         self._nodes:      dict[str, NodeDict] = {n["id"]: n for n in nodes}
         self._edges:      list[EdgeDict]      = edges
         self._edge_by_id: dict[str, EdgeDict] = {e["id"]: e for e in edges}
-        self._warnings:   list[str]           = []
+        self._warnings:    list[str]           = []
+        self._node_errors: bool               = False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -180,6 +181,7 @@ class FlowsheetSolver:
                     )
                 except SimulationError as exc:
                     self._warnings.append(f"Node '{node_id}': {exc}")
+                    self._node_errors = True
                     try:
                         outlets = [_zero_stream(f"{node_id}_err", inlets)]
                     except SimulationError:
@@ -248,7 +250,7 @@ class FlowsheetSolver:
             "node_summaries":   all_node_summaries,
             "energy_balance":   _aggregate_energy(all_node_summaries),
             "warnings":         self._warnings,
-            "converged":        True,
+            "converged":        not self._node_errors,
             "convergence_info": conv_info,
         }
 
@@ -788,6 +790,7 @@ class FlowsheetSolver:
                     if data.get("pressure_bar") is not None else None
                 ),
                 property_package=str(data.get("property_package", "ideal")),
+                kij_override=data.get("kij_override") or None,
                 liquid_name=f"{node_id}_liquid",
                 vapor_name=f"{node_id}_vapor",
             )

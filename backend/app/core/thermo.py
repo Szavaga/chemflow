@@ -158,6 +158,25 @@ def mixture_density_liquid(composition: dict[str, float]) -> float:
     return (MW_mix * 1e-3) / V_mix        # kg/m³
 
 
+# ── Peng-Robinson binary interaction parameters ───────────────────────────────
+# Literature kij values for common polar/asymmetric pairs.
+# Source: Knapp et al., "VLE for Mixtures of Low Boiling Substances", DECHEMA;
+#         Poling, Prausnitz & O'Connell, "Properties of Gases and Liquids", 5th ed.
+# Used as fallback when the `thermo` IPDB is unavailable or lacks the pair.
+PR_BIP: dict[frozenset, float] = {
+    frozenset({"64-17-5",  "7732-18-5"}): 0.093,   # EtOH – H2O
+    frozenset({"67-56-1",  "7732-18-5"}): 0.081,   # MeOH – H2O
+    frozenset({"71-43-2",  "7732-18-5"}): 0.206,   # Benzene – H2O
+    frozenset({"124-38-9", "7732-18-5"}): 0.190,   # CO2 – H2O
+    frozenset({"124-38-9", "74-82-8"}):  0.093,    # CO2 – CH4
+    frozenset({"7727-37-9","7782-44-7"}): -0.010,  # N2 – O2
+    frozenset({"124-38-9", "7727-37-9"}): -0.020,  # CO2 – N2
+    frozenset({"67-64-1",  "7732-18-5"}): 0.120,   # Acetone – H2O
+    frozenset({"108-88-3", "7732-18-5"}): 0.220,   # Toluene – H2O
+    frozenset({"67-63-0",  "7732-18-5"}): 0.105,   # IPA – H2O
+}
+
+
 # ── Peng-Robinson EoS ─────────────────────────────────────────────────────────
 
 class PengRobinson:
@@ -175,7 +194,11 @@ class PengRobinson:
 
     _R: float = 8.314  # J/(mol·K)
 
-    def __init__(self, components: list[str]) -> None:
+    def __init__(
+        self,
+        components: list[str],
+        kij_override: dict[str, dict[str, float]] | None = None,
+    ) -> None:
         missing = [c for c in components if c not in COMPONENT_LIBRARY]
         if missing:
             raise MissingPropertyError(
@@ -197,32 +220,60 @@ class PengRobinson:
             self.Pc[i]    = c.Pc * 1e5   # bar → Pa
             self.omega[i] = c.omega
 
-        self.kij = self._build_kij(components, n)
+        self.kij = self._build_kij(components, n, kij_override)
 
-    def _build_kij(self, components: list[str], n: int) -> np.ndarray:
-        """Build n×n binary interaction parameter matrix from thermo IPDB.
+    def _build_kij(
+        self,
+        components: list[str],
+        n: int,
+        kij_override: dict[str, dict[str, float]] | None = None,
+    ) -> np.ndarray:
+        """Build n×n binary interaction parameter matrix.
 
-        Falls back to zeros for pairs not in the database or if the thermo
-        package is unavailable.  Key format: 'CAS_lo CAS_hi' (alphabetically
-        sorted so that lookup is symmetric).
+        Priority order (highest wins):
+        1. kij_override — explicit per-call values (e.g., from node data or tests)
+        2. thermo IPDB  — ChemSep PR table (when the thermo package is installed)
+        3. PR_BIP       — curated fallback for 10 common polar pairs
+        4. 0.0          — non-polar / unknown pairs
+
+        Key format for IPDB: 'CAS_lo CAS_hi' (alphabetically sorted).
         """
         kij = np.zeros((n, n))
+
+        # Priority 3: curated PR_BIP fallback
+        for i in range(n):
+            for j in range(i + 1, n):
+                pair = frozenset({components[i], components[j]})
+                if pair in PR_BIP:
+                    kij[i, j] = kij[j, i] = PR_BIP[pair]
+
+        # Priority 2: thermo IPDB (overwrites PR_BIP when present)
         try:
             from thermo.interaction_parameters import IPDB  # type: ignore[import]
             tbl = IPDB.tables.get("ChemSep PR", {})
-            if not tbl:
-                return kij
-            for i in range(n):
-                for j in range(i + 1, n):
-                    cas_i = components[i]
-                    cas_j = components[j]
-                    key = f"{min(cas_i, cas_j)} {max(cas_i, cas_j)}"
-                    row = tbl.get(key)
-                    if row is not None:
-                        val = row.get("kij") or 0.0
-                        kij[i, j] = kij[j, i] = float(val)
+            if tbl:
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        cas_i = components[i]
+                        cas_j = components[j]
+                        key = f"{min(cas_i, cas_j)} {max(cas_i, cas_j)}"
+                        row = tbl.get(key)
+                        if row is not None:
+                            val = row.get("kij") or 0.0
+                            kij[i, j] = kij[j, i] = float(val)
         except Exception:
-            pass  # thermo not installed or API mismatch — zeros are safe fallback
+            pass  # thermo not installed or API mismatch — fallback already set
+
+        # Priority 1: explicit caller override (always wins)
+        if kij_override:
+            for i, ci in enumerate(components):
+                if ci in kij_override:
+                    for j, cj in enumerate(components):
+                        if cj in kij_override[ci]:
+                            val = float(kij_override[ci][cj])
+                            kij[i, j] = val
+                            kij[j, i] = val  # enforce symmetry
+
         return kij
 
     # ── pure-component helpers ────────────────────────────────────────────────
